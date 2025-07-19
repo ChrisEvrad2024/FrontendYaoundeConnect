@@ -1,0 +1,157 @@
+{
+  "app": {
+    "title": "YaoundeConnect",
+    "tagline": "Votre guide local à Yaoundé"
+  },
+  "navigation": {
+    "map": "Carte",
+    "explore": "Explorer",
+    "add_place": "Ajouter un lieu",
+    "moderation": "Modération",
+    "admin": "Administration",
+    "profile": "Mon profil",
+    "favorites": "Mes favoris",
+    "settings": "Paramètres",
+    "logout": "Déconnexion",
+    "login": "Connexion",
+    "register": "S'inscrire"
+  },
+  "auth": {
+    "login": {
+      "title": "Connexion",
+      "email": "Adresse email",
+      "password": "Mot de passe",
+      "remember_me": "Se souvenir de moi",
+      "forgot_password": "Mot de passe oublié ?",
+      "submit": "Se connecter",
+      "no_account": "Pas encore de compte ?",
+      "register_link": "Créer un compte"
+    },
+    "register": {
+      "title": "Inscription",
+      "name": "Nom complet",
+      "email": "Adresse email",
+      "password": "Mot de passe",
+      "confirm_password": "Confirmer le mot de passe",
+      "role": "Type de compte",
+      "roles": {
+        "membre": "Membre",
+        "collecteur": "Collecteur"
+      },
+      "terms": "J'accepte les conditions d'utilisation",
+      "submit": "S'inscrire",
+      "have_account": "Déjà un compte ?",
+      "login_link": "Se connecter"
+    },
+    "errors": {
+      "invalid_credentials": "Email ou mot de passe incorrect",
+      "email_not_verified": "Veuillez vérifier votre email",
+      "account_locked": "Compte temporairement bloqué"
+    }
+  },
+  "poi": {
+    "title": "Point d'intérêt",
+    "create": {
+      "title": "Ajouter un nouveau lieu",
+      "general_info": "Informations générales",
+      "location": "Localisation",
+      "features": "Caractéristiques",
+      "images": "Images",
+      "name": "Nom du lieu",
+      "description": "Description",
+      "category": "Catégorie",
+      "quarter": "Quartier",
+      "address": "Adresse",
+      "coordinates": "Coordonnées",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "is_restaurant": "Restaurant",
+      "is_transport": "Transport",
+      "is_stadium": "Stade",
+      "is_booking": "Réservation possible",
+      "submit": "Créer le lieu",
+      "cancel": "Annuler"
+    },
+    "status": {
+      "pending": "En attente",
+      "approved": "Approuvé",
+      "rejected": "Rejeté"
+    },
+    "actions": {
+      "edit": "Modifier",
+      "delete": "Supprimer",
+      "view": "Voir",
+      "directions": "Itinéraire",
+      "share": "Partager",
+      "favorite": "Ajouter aux favoris",
+      "unfavorite": "Retirer des favoris"
+    }
+  },
+  "map": {
+    "search_placeholder": "Rechercher un lieu...",
+    "filter": "Filtrer",
+    "categories": "Catégories",
+    "features": "Caractéristiques",
+    "nearby": "À proximité",
+    "my_location": "Ma position",
+    "zoom_in": "Zoomer",
+    "zoom_out": "Dézoomer",
+    "no_results": "Aucun résultat trouvé"
+  },
+  "comments": {
+    "title": "Commentaires",
+    "add": "Ajouter un commentaire",
+    "reply": "Répondre",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "report": "Signaler",
+    "like": "J'aime",
+    "placeholder": "Partagez votre expérience...",
+    "no_comments": "Aucun commentaire pour le moment"
+  },
+  "ratings": {
+    "title": "Notes",
+    "average": "Note moyenne",
+    "total": "Total des votes",
+    "your_rating": "Votre note",
+    "rate_now": "Noter maintenant",
+    "distribution": "Répartition des notes"
+  },
+  "moderation": {
+    "title": "Modération",
+    "pending": "En attente",
+    "history": "Historique",
+    "statistics": "Statistiques",
+    "approve": "Approuver",
+    "reject": "Rejeter",
+    "reason": "Raison du rejet",
+    "comments": "Commentaires"
+  },
+  "common": {
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "success": "Succès",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "confirm": "Confirmer",
+    "yes": "Oui",
+    "no": "Non",
+    "search": "Rechercher",
+    "filter": "Filtrer",
+    "sort": "Trier",
+    "page": "Page",
+    "of": "de",
+    "items": "éléments",
+    "no_data": "Aucune donnée disponible"
+  },
+  "errors": {
+    "network": "Erreur de connexion réseau",
+    "server": "Erreur serveur",
+    "unauthorized": "Non autorisé",
+    "forbidden": "Accès refusé",
+    "not_found": "Non trouvé",
+    "validation": "Erreur de validation",
+    "unknown": "Une erreur inconnue s'est produite"
+  }
+}
