@@ -5,9 +5,9 @@ import { provideAnimations } from '@angular/platform-browser/animations';
 import { provideToastr } from 'ngx-toastr';
 
 import { routes } from './app.routes';
-import { authInterceptor } from './core/interceptors/auth.interceptor';
-import { errorInterceptor } from './core/interceptors/error.interceptor';
-import { loadingInterceptor } from './core/interceptors/loading.interceptor';
+import { authInterceptor } from './app/core/interceptors/auth-interceptor';
+import { errorInterceptor } from './app/core/interceptors/error-interceptor';
+import { loadingInterceptor } from './app/core/interceptors/loading-interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
