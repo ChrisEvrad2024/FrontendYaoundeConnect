@@ -1,3 +1,4 @@
+// src/app/core/guards/can-deactivate.guard.ts
 import { CanDeactivateFn } from '@angular/router';
 import { Observable } from 'rxjs';
 

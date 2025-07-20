@@ -1,6 +1,7 @@
+// src/app/core/guards/role.guard.ts
 import { inject } from '@angular/core';
 import { Router, CanActivateFn, ActivatedRouteSnapshot } from '@angular/router';
-import { AuthService } from '../services/auth.service';
+import { AuthService } from '../services/auth';
 import { ToastrService } from 'ngx-toastr';
 import { map, take } from 'rxjs/operators';
 
@@ -9,10 +10,11 @@ export const roleGuard: CanActivateFn = (route: ActivatedRouteSnapshot) => {
   const router = inject(Router);
   const toastr = inject(ToastrService);
 
+  // Récupérer les rôles requis depuis la configuration de la route
   const requiredRoles = route.data['roles'] as string[];
 
   if (!requiredRoles || requiredRoles.length === 0) {
-    return true;
+    return true; // Pas de rôle spécifique requis
   }
 
   return authService.currentUser$.pipe(
@@ -23,7 +25,7 @@ export const roleGuard: CanActivateFn = (route: ActivatedRouteSnapshot) => {
         return false;
       }
 
-
+      // Vérifier si l'utilisateur a l'un des rôles requis
       const hasRequiredRole = requiredRoles.includes(user.role);
 
       if (hasRequiredRole) {
