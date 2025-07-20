@@ -3,9 +3,9 @@
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink } from '@angular/router';
-import { ThemeService } from '../../core/services/theme.service';
+import { ThemeService } from '../../core/services/theme';
 import { LucideAngularModule, MapPin, Sun, Moon, ArrowLeft } from 'lucide-angular';
-import { fadeAnimation } from '../../animations/app.animations';
+import { fadeAnimation } from '../../../../animations/app.animations';
 
 @Component({
   selector: 'app-auth-layout',

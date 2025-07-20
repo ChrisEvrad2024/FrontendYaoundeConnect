@@ -4,7 +4,7 @@ import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../core/services/auth';
-import { ThemeService } from '../../core/services/theme.service';
+import { ThemeService } from '../../core/services/theme';
 import {
   LucideAngularModule,
   LayoutDashboard, Users, MapPin, Shield, BarChart3, Settings,
@@ -164,7 +164,7 @@ import { expandAnimation, slideAnimation } from './../../../../animations/app.an
             <div class="flex-shrink-0">
               <div class="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center">
                 <span class="text-white font-semibold">
-                  {{ authService.currentUser()?.name.charAt(0).toUpperCase() }}
+                  {{ authService.currentUser()?.name?.charAt(0)?.toUpperCase() }}
                 </span>
               </div>
             </div>

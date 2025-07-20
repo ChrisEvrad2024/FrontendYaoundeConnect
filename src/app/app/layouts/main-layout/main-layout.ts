@@ -4,11 +4,11 @@ import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../core/services/auth';
-import { ThemeService } from '../../core/services/theme.service';
-import { NotificationService } from '../../core/services/notification.service';
+import { ThemeService } from '../../core/services/theme';
+import { NotificationService } from '../../core/services/notification';
 import { LoadingService } from '../../core/services/loading.service';
 import { LucideAngularModule, Menu, X, Bell, User, LogOut, Settings, Map, MapPin, Plus, Shield, Sun, Moon, Home } from 'lucide-angular';
-import { fadeAnimation, slideAnimation, expandAnimation } from '../../animations/app.animations';
+import { fadeAnimation, slideAnimation, expandAnimation } from '../../../../animations/app.animations';
 
 @Component({
   selector: 'app-main-layout',
@@ -18,7 +18,7 @@ import { fadeAnimation, slideAnimation, expandAnimation } from '../../animations
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
-    LucideAngularModule
+    LucideAngularModule,
   ],
   template: `
     <div class="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
@@ -38,7 +38,7 @@ import { fadeAnimation, slideAnimation, expandAnimation } from '../../animations
 
               <!-- Logo -->
               <a routerLink="/map" class="flex items-center ml-2 md:ml-0">
-                <MapPin class="h-8 w-8 text-primary-600 dark:text-primary-400" />
+                <lucide-icon name="map-pin" class="h-8 w-8 text-primary-600 dark:text-primary-400"></lucide-icon>
                 <span class="ml-2 text-xl font-bold text-gray-900 dark:text-white">
                   YaoundéConnect
                 </span>

@@ -4,9 +4,9 @@ import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth';
-import { ThemeService } from '../../core/services/theme.service';
+import { ThemeService } from '../../core/services/theme';
 import { LucideAngularModule, Menu, X, MapPin, User, LogOut, Settings, Plus, List, Sun, Moon, Layers, Navigation2 } from 'lucide-angular';
-import { slideAnimation, expandAnimation } from '../../animations/app.animations';
+import { slideAnimation, expandAnimation } from './../../../../animations/app.animations';
 
 @Component({
   selector: 'app-map-layout',
