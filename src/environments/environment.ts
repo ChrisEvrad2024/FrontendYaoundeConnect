@@ -1,9 +1,9 @@
-// src/environments/environment.development.ts
+// src/environments/environment.ts
 
 export const environment = {
-    production: false,
-    apiUrl: 'http://localhost:9999/api',
-    socketUrl: 'http://localhost:9999', // URL pour WebSocket
+    production: true,
+    apiUrl: 'https://api.yaoundeconnect.com/api',
+    socketUrl: 'https://api.yaoundeconnect.com',
     appName: 'YaoundéConnect',
     version: '1.0.0',
 
@@ -16,16 +16,16 @@ export const environment = {
 
     // Configuration WebSocket
     websocket: {
-        url: 'http://localhost:9999',
+        url: 'https://api.yaoundeconnect.com',
         options: {
             transports: ['websocket', 'polling'],
             upgrade: true,
             rememberUpgrade: true,
-            timeout: 10000,
+            timeout: 15000,
             reconnection: true,
             reconnectionAttempts: 5,
-            reconnectionDelay: 2000,
-            autoConnect: false // Géré manuellement par le service
+            reconnectionDelay: 3000,
+            autoConnect: false
         }
     },
 
@@ -33,16 +33,16 @@ export const environment = {
     auth: {
         tokenKey: 'yaoundeconnect_token',
         userKey: 'yaoundeconnect_user',
-        tokenExpiry: 7 * 24 * 60 * 60 * 1000, // 7 jours en millisecondes
-        refreshThreshold: 60 * 60 * 1000, // Rafraîchir le token 1h avant expiration
+        tokenExpiry: 7 * 24 * 60 * 60 * 1000, // 7 jours
+        refreshThreshold: 60 * 60 * 1000, // 1h avant expiration
     },
 
     // Configuration upload
     upload: {
-        maxSize: 10 * 1024 * 1024, // 10MB
-        allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-        maxFiles: 5,
-        imageQuality: 0.8,
+        maxSize: 5 * 1024 * 1024, // 5MB en production
+        allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        maxFiles: 3,
+        imageQuality: 0.7,
         thumbnailSize: { width: 300, height: 300 }
     },
 
@@ -65,7 +65,7 @@ export const environment = {
     notifications: {
         maxCount: 50,
         autoCleanDays: 30,
-        toastDuration: 5000,
+        toastDuration: 4000,
         toastPosition: 'toast-top-right'
     },
 
@@ -87,10 +87,10 @@ export const environment = {
         routingAPI: 'https://router.project-osrm.org'
     },
 
-    // Configuration de développement
+    // Configuration de production
     debug: {
-        enableLogging: true,
-        logLevel: 'debug', // 'error', 'warn', 'info', 'debug'
-        enableReduxDevTools: true
+        enableLogging: false,
+        logLevel: 'error',
+        enableReduxDevTools: false
     }
-};  
+};
