@@ -1,0 +1,722 @@
+// src/styles/map-styles.scss
+// Styles globaux pour la carte Leaflet et les composants de carte
+
+/* Import Leaflet CSS */
+@import 'leaflet/dist/leaflet.css';
+@import 'leaflet.markercluster/dist/MarkerCluster.css';
+@import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+
+/* Variables pour les couleurs de la carte */
+:root {
+  --map-primary: #3b82f6;
+  --map-secondary: #10b981;
+  --map-accent: #f59e0b;
+  --map-danger: #ef4444;
+  --map-surface: #ffffff;
+  --map-surface-dark: #1f2937;
+  --map-text: #111827;
+  --map-text-muted: #6b7280;
+  --map-border: #e5e7eb;
+  --map-shadow: rgba(0, 0, 0, 0.1);
+  --map-shadow-lg: rgba(0, 0, 0, 0.25);
+}
+
+/* Mode sombre */
+.dark {
+  --map-surface: #1f2937;
+  --map-surface-dark: #111827;
+  --map-text: #f9fafb;
+  --map-text-muted: #9ca3af;
+  --map-border: #374151;
+  --map-shadow: rgba(0, 0, 0, 0.3);
+  --map-shadow-lg: rgba(0, 0, 0, 0.5);
+}
+
+/* Conteneur principal de la carte */
+.map-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, sans-serif;
+  
+  &.loading {
+    pointer-events: none;
+  }
+}
+
+/* Élément de carte Leaflet */
+.leaflet-container {
+  background: #f0f9ff;
+  font-family: inherit;
+  
+  .dark & {
+    background: #0f172a;
+    filter: hue-rotate(180deg) invert(1);
+    
+    /* Remettre les marqueurs et contrôles dans le bon sens */
+    .leaflet-marker-icon,
+    .leaflet-popup,
+    .leaflet-control {
+      filter: hue-rotate(180deg) invert(1);
+    }
+  }
+}
+
+/* Surcharge des contrôles Leaflet par défaut */
+.leaflet-control-zoom {
+  box-shadow: 0 2px 8px var(--map-shadow);
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  
+  a {
+    background: var(--map-surface);
+    color: var(--map-text);
+    border: none;
+    font-size: 18px;
+    line-height: 30px;
+    width: 30px;
+    height: 30px;
+    transition: all 0.2s ease;
+    
+    &:hover {
+      background: #f3f4f6;
+      color: var(--map-text);
+    }
+    
+    &:first-child {
+      border-bottom: 1px solid var(--map-border);
+    }
+  }
+}
+
+.leaflet-control-scale {
+  background: var(--map-surface);
+  border: 1px solid var(--map-border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--map-text);
+  box-shadow: 0 1px 3px var(--map-shadow);
+}
+
+/* Attribution */
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.8);
+  color: #333;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  
+  a {
+    color: var(--map-primary);
+  }
+}
+
+/* Popups personnalisés */
+.leaflet-popup {
+  margin-bottom: 0;
+  
+  .leaflet-popup-content-wrapper {
+    background: var(--map-surface);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px var(--map-shadow-lg);
+    border: 1px solid var(--map-border);
+    padding: 0;
+    overflow: hidden;
+  }
+  
+  .leaflet-popup-content {
+    margin: 0;
+    padding: 16px;
+    line-height: 1.5;
+    font-size: 14px;
+    color: var(--map-text);
+    max-width: 300px;
+  }
+  
+  .leaflet-popup-tip {
+    background: var(--map-surface);
+    border: 1px solid var(--map-border);
+    border-top: none;
+    border-right: none;
+  }
+  
+  .leaflet-popup-close-button {
+    color: var(--map-text-muted);
+    font-size: 18px;
+    font-weight: bold;
+    padding: 8px;
+    transition: color 0.2s ease;
+    
+    &:hover {
+      color: var(--map-text);
+    }
+  }
+}
+
+/* Styles pour les popups POI */
+.poi-popup {
+  .poi-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    gap: 8px;
+    
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--map-text);
+      line-height: 1.3;
+    }
+  }
+  
+  .verified-badge {
+    background: var(--map-secondary);
+    color: white;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+    
+    i {
+      font-size: 8px;
+    }
+  }
+  
+  .poi-popup-image {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    background: #f3f4f6;
+  }
+  
+  .poi-popup-description {
+    color: var(--map-text-muted);
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 12px;
+  }
+  
+  .poi-popup-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  
+  .poi-rating,
+  .poi-category,
+  .poi-distance {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--map-text-muted);
+    
+    i {
+      width: 12px;
+      color: var(--map-text-muted);
+    }
+  }
+  
+  .poi-rating {
+    .fas.fa-star,
+    .fas.fa-star-half-alt {
+      color: #fbbf24;
+    }
+    
+    .far.fa-star {
+      color: #d1d5db;
+    }
+  }
+  
+  .rating-count {
+    color: var(--map-text-muted);
+    font-size: 11px;
+  }
+  
+  .poi-popup-actions {
+    display: flex;
+    gap: 8px;
+    
+    button {
+      flex: 1;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+      
+      &.btn-primary {
+        background: var(--map-primary);
+        color: white;
+        
+        &:hover {
+          background: #2563eb;
+          transform: translateY(-1px);
+        }
+      }
+      
+      &.btn-secondary {
+        background: #f3f4f6;
+        color: var(--map-text);
+        border: 1px solid var(--map-border);
+        
+        &:hover {
+          background: #e5e7eb;
+          transform: translateY(-1px);
+        }
+        
+        .dark & {
+          background: #374151;
+          color: #f9fafb;
+          border-color: #4b5563;
+          
+          &:hover {
+            background: #4b5563;
+          }
+        }
+      }
+    }
+  }
+}
+
+/* Marqueurs POI personnalisés */
+.poi-marker {
+  &.poi-marker-container {
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+    
+    &:hover {
+      transform: scale(1.1);
+      z-index: 1000;
+    }
+    
+    &.verified {
+      .poi-marker-pin::after {
+        content: '';
+        position: absolute;
+        top: -3px;
+        right: -3px;
+        width: 10px;
+        height: 10px;
+        background: var(--map-secondary);
+        border: 2px solid white;
+        border-radius: 50%;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      }
+    }
+    
+    &.high-rated {
+      .rating-badge {
+        background: linear-gradient(135deg, #fbbf24, #f59e0b);
+        color: white;
+      }
+    }
+  }
+  
+  .poi-marker-pin {
+    width: 32px;
+    height: 42px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 3px solid white;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.2s ease;
+    
+    i {
+      transform: rotate(45deg);
+      font-size: 14px;
+      color: white;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+  }
+  
+  .verification-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 14px;
+    height: 14px;
+    background: var(--map-secondary);
+    border: 2px solid white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    color: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  
+  .rating-badge {
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    color: var(--map-text);
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--map-border);
+    min-width: 24px;
+    text-align: center;
+  }
+}
+
+/* Marqueur de position utilisateur */
+.user-location-marker {
+  .user-location-pulse {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--map-primary);
+    position: relative;
+    animation: userLocationPulse 2s infinite;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 8px;
+      height: 8px;
+      background: white;
+      border-radius: 50%;
+    }
+  }
+}
+
+@keyframes userLocationPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7), 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0), 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0), 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Clusters de marqueurs personnalisés */
+.marker-cluster-custom {
+  .marker-cluster {
+    border-radius: 50%;
+    color: white;
+    font-weight: 600;
+    text-align: center;
+    border: 3px solid white;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+    
+    &:hover {
+      transform: scale(1.1);
+    }
+    
+    .marker-cluster-inner {
+      border-radius: 50%;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      
+      span {
+        font-size: 12px;
+        font-weight: 700;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+    }
+    
+    &.cluster-small {
+      width: 32px;
+      height: 32px;
+      background: var(--map-primary);
+    }
+    
+    &.cluster-medium {
+      width: 38px;
+      height: 38px;
+      background: var(--map-accent);
+      
+      span {
+        font-size: 13px;
+      }
+    }
+    
+    &.cluster-large {
+      width: 44px;
+      height: 44px;
+      background: var(--map-danger);
+      
+      span {
+        font-size: 14px;
+      }
+    }
+  }
+}
+
+/* Cercles de recherche */
+.leaflet-interactive {
+  &[stroke-dasharray] {
+    animation: searchRadiusPulse 2s infinite;
+  }
+}
+
+@keyframes searchRadiusPulse {
+  0%, 100% {
+    stroke-opacity: 0.6;
+  }
+  50% {
+    stroke-opacity: 0.3;
+  }
+}
+
+/* Contrôles personnalisés */
+.map-controls {
+  .control-group {
+    background: var(--map-surface);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px var(--map-shadow-lg);
+    overflow: hidden;
+    border: 1px solid var(--map-border);
+    
+    .control-btn {
+      background: var(--map-surface);
+      color: var(--map-text);
+      border: none;
+      border-bottom: 1px solid var(--map-border);
+      transition: all 0.2s ease;
+      
+      &:hover:not(:disabled) {
+        background: #f3f4f6;
+        color: var(--map-text);
+        
+        .dark & {
+          background: #374151;
+        }
+      }
+      
+      &:active {
+        background: #e5e7eb;
+        
+        .dark & {
+          background: #4b5563;
+        }
+      }
+      
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      
+      &.active {
+        background: var(--map-primary);
+        color: white;
+      }
+      
+      &.location-btn.active {
+        background: var(--map-secondary);
+        color: white;
+      }
+      
+      &:last-child {
+        border-bottom: none;
+      }
+    }
+  }
+}
+
+/* Panneau des couches */
+.layers-panel {
+  background: var(--map-surface);
+  border: 1px solid var(--map-border);
+  box-shadow: 0 8px 32px var(--map-shadow-lg);
+  color: var(--map-text);
+  
+  .panel-title {
+    color: var(--map-text);
+    border-bottom-color: var(--map-border);
+  }
+  
+  .layer-option {
+    color: var(--map-text);
+    
+    &:hover {
+      background: #f9fafb;
+      
+      .dark & {
+        background: #374151;
+      }
+    }
+    
+    input[type="checkbox"],
+    input[type="radio"] {
+      accent-color: var(--map-primary);
+    }
+  }
+  
+  .overlay-options h4 {
+    color: var(--map-text-muted);
+  }
+}
+
+/* Indicateurs d'état */
+.location-indicator,
+.map-stats {
+  background: var(--map-surface);
+  border: 1px solid var(--map-border);
+  box-shadow: 0 4px 12px var(--map-shadow-lg);
+  color: var(--map-text);
+  
+  .accuracy {
+    color: var(--map-text-muted);
+  }
+  
+  .stat-label {
+    color: var(--map-text-muted);
+  }
+  
+  .stat-value {
+    color: var(--map-text);
+  }
+}
+
+/* Animations et transitions */
+.loading-spinner {
+  border-color: #e5e7eb;
+  border-top-color: var(--map-primary);
+  
+  .dark & {
+    border-color: #374151;
+    border-top-color: #60a5fa;
+  }
+  
+  &.small {
+    border-width: 2px;
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .poi-popup {
+    .poi-popup-actions {
+      flex-direction: column;
+      
+      button {
+        padding: 10px 16px;
+        font-size: 13px;
+      }
+    }
+  }
+  
+  .map-controls {
+    .control-btn {
+      width: 36px;
+      height: 36px;
+    }
+  }
+  
+  .layers-panel {
+    min-width: auto;
+    max-width: calc(100vw - 6rem);
+  }
+  
+  .marker-cluster {
+    &.cluster-small {
+      width: 28px;
+      height: 28px;
+    }
+    
+    &.cluster-medium {
+      width: 34px;
+      height: 34px;
+    }
+    
+    &.cluster-large {
+      width: 40px;
+      height: 40px;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .poi-marker {
+    .poi-marker-pin {
+      width: 28px;
+      height: 36px;
+      
+      i {
+        font-size: 12px;
+      }
+    }
+    
+    .rating-badge {
+      font-size: 9px;
+      padding: 1px 4px;
+    }
+  }
+  
+  .leaflet-popup {
+    .leaflet-popup-content {
+      padding: 12px;
+      font-size: 13px;
+    }
+  }
+}
+
+/* Optimisations pour les performances */
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+  will-change: transform;
+}
+
+.leaflet-zoom-animated {
+  .leaflet-marker-icon,
+  .leaflet-marker-shadow {
+    transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
+  }
+}
+
+/* Accessibilité */
+@media (prefers-reduced-motion: reduce) {
+  .poi-marker-container,
+  .control-btn,
+  .marker-cluster {
+    transition: none;
+  }
+  
+  .user-location-pulse {
+    animation: none;
+  }
+  
+  @keyframes userLocationPulse {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7), 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+  }
+}

@@ -29,6 +29,13 @@ export interface PoiModel {
     isFavorite?: boolean; // Si l'utilisateur connecté l'a en favori
 }
 
+export interface FlyToPoiData {
+    id: string;
+    latitude: number;
+    longitude: number;
+    name?: string;
+}
+
 export interface PoiCreateRequest {
     name: string;
     description: string;
