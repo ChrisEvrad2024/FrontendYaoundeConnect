@@ -582,23 +582,23 @@ export class OSMService {
   }
 
   private determineCategory(tags: Record<string, string>): string {
-    if (tags.amenity) {
-      if (['restaurant', 'cafe', 'fast_food', 'food_court'].includes(tags.amenity)) {
+    if (tags['amenity']) {
+      if (['restaurant', 'cafe', 'fast_food', 'food_court'].includes(tags['amenity'])) {
         return 'restaurant';
       }
-      if (['hotel', 'guesthouse', 'hostel'].includes(tags.amenity)) {
+      if (['hotel', 'guesthouse', 'hostel'].includes(tags['amenity'])) {
         return 'hotel';
       }
-      if (['bank', 'atm', 'pharmacy', 'hospital'].includes(tags.amenity)) {
+      if (['bank', 'atm', 'pharmacy', 'hospital'].includes(tags['amenity'])) {
         return 'service';
       }
     }
     
-    if (tags.tourism) {
+    if (tags['tourism']) {
       return 'attraction';
     }
     
-    if (tags.shop) {
+    if (tags['shop']) {
       return 'shopping';
     }
     

@@ -1,1125 +1,1206 @@
-// src/app/features/map/components/map-container/map-container.ts
+// src/app/features/map/services/map.service.ts
 
-import {
-  Component,
-  OnInit,
-  OnDestroy,
-  AfterViewInit,
-  ElementRef,
-  ViewChild,
-  inject,
-  signal,
-  computed,
-  effect,
-  NgZone,
-  PLATFORM_ID
-} from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
-import { Subscription, fromEvent, debounceTime, Observable } from 'rxjs';
+import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
+import { BehaviorSubject, Observable, Subject, fromEvent } from 'rxjs';
+import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 import * as L from 'leaflet';
-
-import { MapService, MapViewState, SearchResult } from '../../services/map';
-import { GeolocationService, YaoundeGeolocationPosition } from '../../../../core/services/geolocation';
-import { LoadingService } from '../../../../core/services/loading.service';
-import { NotificationService } from '../../../../core/services/notification';
+import 'leaflet.markercluster';
 import { PoiModel, PoiDetailModel } from '../../../../../core/models/poi.model';
-import { fadeAnimation, scaleAnimation } from '../../../../../../animations/app.animations';
+import { GeolocationService, YaoundeGeolocationPosition } from '../../../../core/services/geolocation';
+import { environment } from '../../../../../../environments/environment.development';
 
-import {
-  LucideAngularModule,
-  Navigation2, Layers, ZoomIn, ZoomOut, RotateCcw,
-  MapPin, Search, Filter, Maximize2, Minimize2
-} from 'lucide-angular';
-
-@Component({
-  selector: 'app-map-container',
-  standalone: true,
-  imports: [CommonModule, LucideAngularModule],
-  template: `
-    <div class="map-container" [class.loading]="isLoading()">
-      <!-- Conteneur de la carte -->
-      <div 
-        #mapElement 
-        class="map-element"
-        [style.height.px]="mapHeight()"
-        [attr.aria-label]="'Carte interactive de Yaoundé'"
-        role="application"
-      ></div>
-
-      <!-- Indicateur de chargement -->
-      @if (isLoading()) {
-        <div class="map-loading-overlay" @fadeAnimation>
-          <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <p class="loading-text">{{ loadingMessage() }}</p>
-          </div>
-        </div>
-      }
-
-      <!-- Contrôles de carte flottants -->
-      <div class="map-controls">
-        <!-- Contrôles de zoom -->
-        <div class="control-group zoom-controls">
-          <button
-            (click)="zoomIn()"
-            class="control-btn"
-            title="Zoomer"
-            [disabled]="!mapService.isReady()"
-          >
-            <lucide-icon [img]="ZoomIn" class="w-5 h-5"></lucide-icon>
-          </button>
-          <button
-            (click)="zoomOut()"
-            class="control-btn"
-            title="Dézoomer"
-            [disabled]="!mapService.isReady()"
-          >
-            <lucide-icon [img]="ZoomOut" class="w-5 h-5"></lucide-icon>
-          </button>
-        </div>
-
-        <!-- Contrôles de géolocalisation -->
-        <div class="control-group location-controls">
-          <button
-            (click)="centerOnUser()"
-            class="control-btn location-btn"
-            [class.active]="userLocationActive()"
-            [class.loading]="geoLocationLoading()"
-            title="Ma position"
-            [disabled]="!geolocationService.isLocationSupported()"
-          >
-            @if (geoLocationLoading()) {
-              <div class="loading-spinner small"></div>
-            } @else {
-              <lucide-icon [img]="Navigation2" class="w-5 h-5"></lucide-icon>
-            }
-          </button>
-        </div>
-
-        <!-- Contrôles d'affichage -->
-        <div class="control-group display-controls">
-          <button
-            (click)="toggleLayers()"
-            class="control-btn"
-            [class.active]="layersVisible()"
-            title="Couches de carte"
-          >
-            <lucide-icon [img]="Layers" class="w-5 h-5"></lucide-icon>
-          </button>
-          
-          <button
-            (click)="resetView()"
-            class="control-btn"
-            title="Réinitialiser la vue"
-          >
-            <lucide-icon [img]="RotateCcw" class="w-5 h-5"></lucide-icon>
-          </button>
-
-          <button
-            (click)="toggleFullscreen()"
-            class="control-btn"
-            title="Plein écran"
-          >
-            <lucide-icon 
-              [img]="isFullscreen() ? Minimize2 : Maximize2" 
-              class="w-5 h-5"
-            ></lucide-icon>
-          </button>
-        </div>
-      </div>
-
-      <!-- Panneau des couches (si activé) -->
-      @if (layersVisible()) {
-        <div class="layers-panel" @scaleAnimation>
-          <h3 class="panel-title">Couches de carte</h3>
-          
-          <div class="layer-options">
-            <label class="layer-option">
-              <input 
-                type="radio" 
-                name="baseLayer" 
-                value="osm"
-                [checked]="selectedBaseLayer() === 'osm'"
-                (change)="changeBaseLayer('osm')"
-              >
-              <span>OpenStreetMap</span>
-            </label>
-            
-            <label class="layer-option">
-              <input 
-                type="radio" 
-                name="baseLayer" 
-                value="satellite"
-                [checked]="selectedBaseLayer() === 'satellite'"
-                (change)="changeBaseLayer('satellite')"
-              >
-              <span>Vue satellite</span>
-            </label>
-          </div>
-
-          <div class="overlay-options">
-            <h4>Superpositions</h4>
-            
-            <label class="layer-option">
-              <input 
-                type="checkbox" 
-                [checked]="showTraffic()"
-                (change)="toggleTraffic()"
-              >
-              <span>Trafic</span>
-            </label>
-            
-            <label class="layer-option">
-              <input 
-                type="checkbox" 
-                [checked]="showSearchRadius()"
-                (change)="toggleSearchRadius()"
-              >
-              <span>Rayon de recherche</span>
-            </label>
-          </div>
-        </div>
-      }
-
-      <!-- Indicateur de position -->
-      @if (userLocation()) {
-        <div class="location-indicator" @fadeAnimation>
-          <lucide-icon [img]="MapPin" class="w-4 h-4"></lucide-icon>
-          <span>{{ formatLocation(userLocation()!) }}</span>
-          <span class="accuracy">±{{ userLocation()?.accuracy }}m</span>
-        </div>
-      }
-
-      <!-- Statistiques de carte -->
-      @if (showStats()) {
-        <div class="map-stats" @scaleAnimation>
-          <div class="stat-item">
-            <span class="stat-label">POIs visibles</span>
-            <span class="stat-value">{{ mapStats().visiblePois }}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">À proximité</span>
-            <span class="stat-value">{{ mapStats().nearbyPois }}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Note moyenne</span>
-            <span class="stat-value">{{ mapStats().averageRating }}/5</span>
-          </div>
-        </div>
-      }
-
-      <!-- Échelle de la carte -->
-      <div class="map-scale">
-        Zoom: {{ mapService.mapZoom() }}
-      </div>
-    </div>
-  `,
-  styles: [`
-    .map-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background-color: #f0f9ff;
+// Étendre L avec les types MarkerCluster
+declare module 'leaflet' {
+  namespace MarkerClusterGroup {
+    interface MarkerClusterGroupOptions {
+      chunkedLoading?: boolean;
+      chunkInterval?: number;
+      chunkDelay?: number;
+      chunkProgress?: (processed: number, total: number, elapsed: number) => void;
+      maxClusterRadius?: number;
+      spiderfyOnMaxZoom?: boolean;
+      showCoverageOnHover?: boolean;
+      zoomToBoundsOnClick?: boolean;
+      disableClusteringAtZoom?: number;
+      removeOutsideVisibleBounds?: boolean;
+      animate?: boolean;
+      animateAddingMarkers?: boolean;
+      iconCreateFunction?: (cluster: any) => L.DivIcon;
     }
-
-    .map-element {
-      width: 100%;
-      z-index: 1;
-    }
-
-    .map-loading-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(255, 255, 255, 0.9);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .loading-content {
-      text-align: center;
-      padding: 2rem;
-    }
-
-    .loading-spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid #e5e7eb;
-      border-top-color: #3b82f6;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 1rem;
-    }
-
-    .loading-spinner.small {
-      width: 20px;
-      height: 20px;
-      border-width: 2px;
-      margin: 0;
-    }
-
-    .loading-text {
-      color: #6b7280;
-      font-size: 0.875rem;
-      margin: 0;
-    }
-
-    .map-controls {
-      position: absolute;
-      top: 1rem;
-      right: 1rem;
-      z-index: 400;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .control-group {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-      overflow: hidden;
-    }
-
-    .control-btn {
-      width: 40px;
-      height: 40px;
-      border: none;
-      background: white;
-      color: #374151;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    .control-btn:last-child {
-      border-bottom: none;
-    }
-
-    .control-btn:hover:not(:disabled) {
-      background: #f3f4f6;
-      color: #111827;
-    }
-
-    .control-btn:active {
-      background: #e5e7eb;
-    }
-
-    .control-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .control-btn.active {
-      background: #3b82f6;
-      color: white;
-    }
-
-    .control-btn.loading {
-      pointer-events: none;
-    }
-
-    .location-btn.active {
-      background: #059669;
-      color: white;
-    }
-
-    .layers-panel {
-      position: absolute;
-      top: 1rem;
-      left: 1rem;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      padding: 1rem;
-      min-width: 200px;
-      z-index: 500;
-    }
-
-    .panel-title {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #111827;
-      margin: 0 0 1rem 0;
-      padding-bottom: 0.5rem;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    .layer-options,
-    .overlay-options {
-      margin-bottom: 1rem;
-    }
-
-    .overlay-options h4 {
-      font-size: 0.75rem;
-      font-weight: 500;
-      color: #6b7280;
-      margin: 1rem 0 0.5rem 0;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .layer-option {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-      cursor: pointer;
-      font-size: 0.875rem;
-      color: #374151;
-    }
-
-    .layer-option input {
-      margin: 0;
-    }
-
-    .location-indicator {
-      position: absolute;
-      bottom: 1rem;
-      left: 1rem;
-      background: white;
-      border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-      padding: 0.5rem 0.75rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.75rem;
-      color: #374151;
-      z-index: 400;
-    }
-
-    .accuracy {
-      color: #6b7280;
-      font-size: 0.625rem;
-    }
-
-    .map-stats {
-      position: absolute;
-      bottom: 1rem;
-      right: 1rem;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-      padding: 0.75rem;
-      display: flex;
-      gap: 1rem;
-      z-index: 400;
-    }
-
-    .stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.25rem;
-    }
-
-    .stat-label {
-      font-size: 0.625rem;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .stat-value {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #111827;
-    }
-
-    .map-scale {
-      position: absolute;
-      bottom: 1rem;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 0.25rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      z-index: 400;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* Styles pour les marqueurs personnalisés */
-    :host ::ng-deep .poi-marker-container {
-      position: relative;
-      cursor: pointer;
-      transition: transform 0.2s ease;
-    }
-
-    :host ::ng-deep .poi-marker-container:hover {
-      transform: scale(1.1);
-    }
-
-    :host ::ng-deep .poi-marker-pin {
-      width: 30px;
-      height: 40px;
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg);
-      border: 3px solid white;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-    }
-
-    :host ::ng-deep .poi-marker-pin i {
-      transform: rotate(45deg);
-    }
-
-    :host ::ng-deep .verification-badge {
-      position: absolute;
-      top: -2px;
-      right: -2px;
-      width: 12px;
-      height: 12px;
-      background: #10b981;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 6px;
-      color: white;
-      border: 1px solid white;
-    }
-
-    :host ::ng-deep .rating-badge {
-      position: absolute;
-      bottom: -8px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: white;
-      color: #111827;
-      padding: 1px 4px;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 600;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-      border: 1px solid #e5e7eb;
-    }
-
-    :host ::ng-deep .user-location-pulse {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: #3b82f6;
-      position: relative;
-      animation: pulse 2s infinite;
-    }
-
-    :host ::ng-deep .user-location-dot {
-      width: 8px;
-      height: 8px;
-      background: white;
-      border-radius: 50%;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-    }
-
-    @keyframes pulse {
-      0% {
-        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
-      }
-      70% {
-        box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
-      }
-      100% {
-        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-      }
-    }
-
-    /* Styles pour les clusters */
-    :host ::ng-deep .marker-cluster {
-      background: #3b82f6;
-      border-radius: 50%;
-      color: white;
-      font-weight: bold;
-      text-align: center;
-      border: 3px solid white;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-
-    :host ::ng-deep .marker-cluster.cluster-small {
-      width: 30px;
-      height: 30px;
-      line-height: 24px;
-      font-size: 12px;
-    }
-
-    :host ::ng-deep .marker-cluster.cluster-medium {
-      width: 35px;
-      height: 35px;
-      line-height: 29px;
-      font-size: 13px;
-      background: #f59e0b;
-    }
-
-    :host ::ng-deep .marker-cluster.cluster-large {
-      width: 40px;
-      height: 40px;
-      line-height: 34px;
-      font-size: 14px;
-      background: #ef4444;
-    }
-
-    /* Styles pour les popups */
-    :host ::ng-deep .custom-popup .leaflet-popup-content {
-      margin: 0;
-      padding: 0;
-    }
-
-    :host ::ng-deep .poi-popup {
-      min-width: 250px;
-      font-family: inherit;
-    }
-
-    :host ::ng-deep .poi-popup-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.75rem;
-    }
-
-    :host ::ng-deep .poi-popup-header h3 {
-      margin: 0;
-      font-size: 1rem;
-      font-weight: 600;
-      color: #111827;
-    }
-
-    :host ::ng-deep .verified-badge {
-      background: #10b981;
-      color: white;
-      font-size: 0.625rem;
-      padding: 2px 6px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-
-    :host ::ng-deep .poi-popup-image {
-      width: 100%;
-      height: 120px;
-      object-fit: cover;
-      border-radius: 6px;
-      margin-bottom: 0.75rem;
-    }
-
-    :host ::ng-deep .poi-popup-description {
-      color: #6b7280;
-      font-size: 0.875rem;
-      line-height: 1.4;
-      margin-bottom: 0.75rem;
-    }
-
-    :host ::ng-deep .poi-popup-info {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      margin-bottom: 0.75rem;
-      font-size: 0.75rem;
-    }
-
-    :host ::ng-deep .poi-rating,
-    :host ::ng-deep .poi-category,
-    :host ::ng-deep .poi-distance {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      color: #6b7280;
-    }
-
-    :host ::ng-deep .rating-count {
-      color: #9ca3af;
-    }
-
-    :host ::ng-deep .poi-popup-actions {
-      display: flex;
-      gap: 0.5rem;
-    }
-
-    :host ::ng-deep .btn-primary,
-    :host ::ng-deep .btn-secondary {
-      flex: 1;
-      padding: 0.5rem 1rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border: none;
-    }
-
-    :host ::ng-deep .btn-primary {
-      background: #3b82f6;
-      color: white;
-    }
-
-    :host ::ng-deep .btn-primary:hover {
-      background: #2563eb;
-    }
-
-    :host ::ng-deep .btn-secondary {
-      background: #f3f4f6;
-      color: #374151;
-      border: 1px solid #d1d5db;
-    }
-
-    :host ::ng-deep .btn-secondary:hover {
-      background: #e5e7eb;
-    }
-
-    /* Responsive */
-    @media (max-width: 768px) {
-      .map-controls {
-        top: 0.5rem;
-        right: 0.5rem;
-      }
-
-      .control-btn {
-        width: 36px;
-        height: 36px;
-      }
-
-      .layers-panel {
-        top: 0.5rem;
-        left: 0.5rem;
-        right: 4rem;
-        min-width: auto;
-      }
-
-      .location-indicator,
-      .map-stats {
-        position: static;
-        margin: 0.5rem;
-      }
-
-      .map-stats {
-        flex-direction: column;
-        gap: 0.5rem;
-      }
-
-      .stat-item {
-        flex-direction: row;
-        justify-content: space-between;
-      }
-    }
-  `],
-  animations: [fadeAnimation, scaleAnimation]
+  }
+
+  function markerClusterGroup(options?: MarkerClusterGroup.MarkerClusterGroupOptions): any;
+}
+
+export interface MapMarker {
+  id: string;
+  marker: L.Marker;
+  poi: PoiModel;
+  cluster?: boolean;
+  category: string;
+  isVisible: boolean;
+}
+
+export interface MapBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+}
+
+export interface SearchResult {
+  poi: PoiModel;
+  relevance: number;
+  distance?: number;
+}
+
+export interface MapViewState {
+  center: L.LatLng;
+  zoom: number;
+  bounds: L.LatLngBounds;
+  timestamp: Date;
+}
+
+export interface MarkerClusterStats {
+  totalMarkers: number;
+  visibleMarkers: number;
+  clusteredMarkers: number;
+  clusters: number;
+}
+
+export interface FilterOptions {
+  categories?: string[];
+  distance?: number;
+  rating?: number;
+  verified?: boolean;
+  features?: string[];
+}
+
+@Injectable({
+  providedIn: 'root'
 })
-export class MapContainer implements OnInit, OnDestroy, AfterViewInit {
-  @ViewChild('mapElement', { static: true }) mapElement!: ElementRef<HTMLDivElement>;
-
-  private readonly mapService = inject(MapService);
+export class MapService {
   private readonly geolocationService = inject(GeolocationService);
-  private readonly loadingService = inject(LoadingService);
-  private readonly notificationService = inject(NotificationService);
   private readonly ngZone = inject(NgZone);
-  private readonly platformId = inject(PLATFORM_ID);
 
-  private subscriptions = new Subscription();
-  private resizeObserver?: ResizeObserver;
+  // État de la carte
+  private map: L.Map | null = null;
+  private markerClusterGroup: any = null;
+  private markers = new Map<string, MapMarker>();
+  private userLocationMarker: L.Marker | null = null;
+  private searchCircle: L.Circle | null = null;
+  private heatmapLayer: L.Layer | null = null;
 
-  // Signals pour l'état du composant
-  public readonly isLoading = signal<boolean>(true);
-  public readonly loadingMessage = signal<string>('Initialisation de la carte...');
-  public readonly mapHeight = signal<number>(400);
-  public readonly layersVisible = signal<boolean>(false);
-  public readonly userLocationActive = signal<boolean>(false);
-  public readonly geoLocationLoading = signal<boolean>(false);
-  public readonly isFullscreen = signal<boolean>(false);
-  public readonly showStats = signal<boolean>(true);
-  public readonly selectedBaseLayer = signal<string>('osm');
-  public readonly showTraffic = signal<boolean>(false);
-  public readonly showSearchRadius = signal<boolean>(false);
+  // Couches de carte
+  private baseLayers = new Map<string, L.TileLayer>();
+  private overlayLayers = new Map<string, L.Layer>();
+  private currentBaseLayer = 'osm';
 
-  // Accès aux services via computed
-  public readonly userLocation = computed(() => this.geolocationService.currentLocation());
-  public readonly mapStats = computed(() => this.mapService.mapStats());
+  // Signals pour l'état réactif
+  public readonly selectedPoi = signal<PoiDetailModel | null>(null);
+  public readonly hoveredPoi = signal<PoiModel | null>(null);
+  public readonly visiblePois = signal<PoiModel[]>([]);
+  public readonly filteredPois = signal<PoiModel[]>([]);
+  public readonly mapCenter = signal<L.LatLng>(
+    L.latLng(environment.map.defaultCenter.lat, environment.map.defaultCenter.lng)
+  );
+  public readonly mapZoom = signal<number>(environment.map.defaultZoom);
+  public readonly userLocation = signal<YaoundeGeolocationPosition | null>(null);
+  public readonly isMapReady = signal<boolean>(false);
+  public readonly mapBounds = signal<MapBounds | null>(null);
+  public readonly activeFilters = signal<FilterOptions>({});
+  public readonly clusterStats = signal<MarkerClusterStats>({
+    totalMarkers: 0,
+    visibleMarkers: 0,
+    clusteredMarkers: 0,
+    clusters: 0
+  });
 
-  // Icons
-  protected readonly Navigation2 = Navigation2;
-  protected readonly Layers = Layers;
-  protected readonly ZoomIn = ZoomIn;
-  protected readonly ZoomOut = ZoomOut;
-  protected readonly RotateCcw = RotateCcw;
-  protected readonly MapPin = MapPin;
-  protected readonly Search = Search;
-  protected readonly Filter = Filter;
-  protected readonly Maximize2 = Maximize2;
-  protected readonly Minimize2 = Minimize2;
+  // Observables pour les événements de carte
+  private mapMoveSubject = new Subject<MapViewState>();
+  private poiClickSubject = new Subject<PoiModel>();
+  private mapClickSubject = new Subject<L.LatLng>();
+  private markerHoverSubject = new Subject<PoiModel | null>();
 
-  ngOnInit(): void {
-    this.calculateMapHeight();
-    this.setupResizeObserver();
+  public readonly mapMove$ = this.mapMoveSubject.asObservable().pipe(
+    debounceTime(300),
+    distinctUntilChanged((prev, curr) => 
+      prev.center.equals(curr.center) && prev.zoom === curr.zoom
+    )
+  );
 
-    // Écouter les événements personnalisés des popups
-    this.setupPopupEventListeners();
-  }
+  public readonly poiClick$ = this.poiClickSubject.asObservable();
+  public readonly mapClick$ = this.mapClickSubject.asObservable();
+  public readonly markerHover$ = this.markerHoverSubject.asObservable();
 
-  ngAfterViewInit(): void {
-    if (isPlatformBrowser(this.platformId)) {
-      this.initializeMap();
-    }
-  }
+  // Computed signals
+  public readonly nearbyPois = computed(() => {
+    const location = this.userLocation();
+    const pois = this.filteredPois();
+    
+    if (!location) return [];
 
-  ngOnDestroy(): void {
-    this.subscriptions.unsubscribe();
-    this.resizeObserver?.disconnect();
-    this.mapService.destroy();
-    this.removePopupEventListeners();
+    return pois
+      .map(poi => ({
+        ...poi,
+        distance: this.calculateDistance(
+          location.latitude, location.longitude,
+          poi.latitude, poi.longitude
+        )
+      }))
+      .filter(poi => poi.distance! <= 5) // 5km radius
+      .sort((a, b) => a.distance! - b.distance!)
+      .slice(0, 20); // Limite à 20 POIs proches
+  });
+
+  public readonly mapStats = computed(() => {
+    const pois = this.visiblePois();
+    const filtered = this.filteredPois();
+    const bounds = this.mapBounds();
+    
+    return {
+      totalPois: pois.length,
+      filteredPois: filtered.length,
+      visiblePois: pois.filter(poi => this.isPoiInBounds(poi, bounds)).length,
+      nearbyPois: this.nearbyPois().length,
+      categories: this.getCategoryStats(filtered),
+      averageRating: this.calculateAverageRating(filtered),
+      clusterInfo: this.clusterStats()
+    };
+  });
+
+  constructor() {
+    // Configuration des icônes Leaflet par défaut
+    this.configureLeafletIcons();
+
+    // Écouter les changements de géolocalisation
+    this.geolocationService.getCurrentPosition$().subscribe(position => {
+      if (position) {
+        this.userLocation.set(position);
+        this.updateUserLocationMarker(position);
+      }
+    });
+
+    // Filtrer les POIs quand les filtres changent
+    this.setupFilteringSubscription();
   }
 
   /**
-   * Initialiser la carte
+   * Configuration des icônes Leaflet
    */
-  private async initializeMap(): Promise<void> {
-    try {
-      this.isLoading.set(true);
-      this.loadingMessage.set('Initialisation de la carte...');
-
-      // Attendre que Leaflet soit chargé
-      await this.waitForLeaflet();
-
-      // Initialiser la carte
-      const map = await this.mapService.initializeMap(this.mapElement.nativeElement.id || 'map');
-
-      this.loadingMessage.set('Chargement des données...');
-
-      // Configurer les écouteurs d'événements
-      this.setupMapEventListeners();
-
-      // Essayer d'obtenir la géolocalisation
-      this.attemptGeolocation();
-
-      this.isLoading.set(false);
-      this.notificationService.showSuccess('Carte initialisée avec succès', 'YaoundéConnect');
-
-    } catch (error) {
-      console.error('Erreur lors de l\'initialisation de la carte:', error);
-      this.isLoading.set(false);
-      this.notificationService.showError(
-        'Erreur lors du chargement de la carte',
-        'Erreur de carte'
-      );
-    }
+  private configureLeafletIcons(): void {
+    delete (L.Icon.Default.prototype as any)._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'assets/leaflet/marker-icon-2x.png',
+      iconUrl: 'assets/leaflet/marker-icon.png',
+      shadowUrl: 'assets/leaflet/marker-shadow.png',
+    });
   }
 
   /**
-   * Attendre que Leaflet soit disponible
+   * Initialiser la carte Leaflet
    */
-  private waitForLeaflet(): Promise<void> {
-    return new Promise((resolve) => {
-      if (typeof L !== 'undefined') {
-        resolve();
-      } else {
-        const checkLeaflet = () => {
-          if (typeof L !== 'undefined') {
-            resolve();
-          } else {
-            setTimeout(checkLeaflet, 100);
-          }
-        };
-        checkLeaflet();
+  initializeMap(elementId: string): Promise<L.Map> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Créer la carte
+        this.map = L.map(elementId, {
+          center: [environment.map.defaultCenter.lat, environment.map.defaultCenter.lng],
+          zoom: environment.map.defaultZoom,
+          zoomControl: false,
+          attributionControl: false,
+          preferCanvas: true,
+          worldCopyJump: true,
+          maxBounds: [
+            [2.0, 9.0],  // Sud-Ouest du Cameroun
+            [6.0, 14.0]  // Nord-Est du Cameroun (élargi pour couvrir tout le Cameroun)
+          ],
+          maxBoundsViscosity: 1.0
+        });
+
+        // Initialiser les couches de base
+        this.initializeBaseLayers();
+        
+        // Ajouter la couche de base par défaut
+        this.baseLayers.get('osm')?.addTo(this.map);
+
+        // Initialiser le clustering de marqueurs
+        this.initializeMarkerClustering();
+
+        // Configurer les événements de carte
+        this.setupMapEvents();
+
+        // Ajouter les contrôles personnalisés
+        this.addCustomControls();
+
+        this.isMapReady.set(true);
+        resolve(this.map);
+
+      } catch (error) {
+        console.error('Erreur lors de l\'initialisation de la carte:', error);
+        reject(error);
       }
     });
   }
 
   /**
-   * Configurer les écouteurs d'événements de carte
+   * Initialiser les couches de base
    */
-  private setupMapEventListeners(): void {
-    // Écouter les mouvements de carte
-    this.subscriptions.add(
-      this.mapService.mapMove$.subscribe((viewState) => {
-        // Ici on peut déclencher le chargement de nouveaux POIs
-        console.log('Carte déplacée:', viewState);
-      })
-    );
+  private initializeBaseLayers(): void {
+    if (!this.map) return;
 
-    // Écouter les clics sur POI
-    this.subscriptions.add(
-      this.mapService.poiClick$.subscribe((poi) => {
-        // Émettre l'événement vers le parent
-        console.log('POI cliqué:', poi);
-      })
-    );
+    // OpenStreetMap
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: environment.map.maxZoom,
+      attribution: '© OpenStreetMap contributors',
+      detectRetina: true,
+      updateWhenIdle: false,
+      keepBuffer: 4
+    });
 
-    // Écouter les clics sur la carte
-    this.subscriptions.add(
-      this.mapService.mapClick$.subscribe((latlng) => {
-        this.layersVisible.set(false);
-      })
-    );
+    // Satellite (Esri)
+    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: environment.map.maxZoom,
+      attribution: '© Esri, Maxar, Earthstar Geographics',
+      detectRetina: true
+    });
+
+    // Terrain (CartoDB)
+    const terrainLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: environment.map.maxZoom,
+      attribution: '© CartoDB, © OpenStreetMap',
+      detectRetina: true
+    });
+
+    this.baseLayers.set('osm', osmLayer);
+    this.baseLayers.set('satellite', satelliteLayer);
+    this.baseLayers.set('terrain', terrainLayer);
   }
 
   /**
-   * Configurer les écouteurs d'événements des popups
+   * Initialiser le clustering de marqueurs
    */
-  private setupPopupEventListeners(): void {
-    // Écouter les événements personnalisés des popups
-    window.addEventListener('poi-detail', this.handlePoiDetail.bind(this));
-    window.addEventListener('poi-directions', this.handlePoiDirections.bind(this));
-  }
+  private initializeMarkerClustering(): void {
+    if (!this.map) return;
 
-  private removePopupEventListeners(): void {
-    window.removeEventListener('poi-detail', this.handlePoiDetail.bind(this));
-    window.removeEventListener('poi-directions', this.handlePoiDirections.bind(this));
-  }
+    this.markerClusterGroup = (L as any).markerClusterGroup({
+      chunkedLoading: true,
+      chunkInterval: 200,
+      chunkDelay: 50,
+      maxClusterRadius: 80,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      disableClusteringAtZoom: 17,
+      removeOutsideVisibleBounds: true,
+      animate: true,
+      animateAddingMarkers: true,
+      iconCreateFunction: (cluster: any) => this.createClusterIcon(cluster)
+    });
 
-  private handlePoiDetail(event: any): void {
-    const poiId = event.detail;
-    // Rediriger vers la page de détail du POI
-    console.log('Naviguer vers POI:', poiId);
-  }
-
-  private handlePoiDirections(event: any): void {
-    const poiId = event.detail;
-    // Ouvrir l'interface d'itinéraire
-    console.log('Calculer itinéraire vers POI:', poiId);
+    this.map.addLayer(this.markerClusterGroup);
   }
 
   /**
-   * Tenter d'obtenir la géolocalisation
+   * Créer une icône de cluster personnalisée
    */
-  private attemptGeolocation(): void {
-    if (this.geolocationService.isLocationSupported()) {
-      this.geolocationService.requestLocationPermission().then(
-        (granted) => {
-          if (granted) {
-            this.userLocationActive.set(true);
-          }
+  private createClusterIcon(cluster: any): L.DivIcon {
+    const count = cluster.getChildCount();
+    let size = 'small';
+    let colorClass = 'cluster-small';
+
+    if (count >= 100) {
+      size = 'large';
+      colorClass = 'cluster-large';
+    } else if (count >= 10) {
+      size = 'medium';
+      colorClass = 'cluster-medium';
+    }
+
+    return L.divIcon({
+      html: `
+        <div class="marker-cluster ${colorClass}">
+          <div class="marker-cluster-inner">
+            <span>${count}</span>
+          </div>
+        </div>
+      `,
+      className: 'marker-cluster-custom',
+      iconSize: L.point(40, 40),
+      iconAnchor: [20, 20]
+    });
+  }
+
+  /**
+   * Configurer les événements de carte
+   */
+  private setupMapEvents(): void {
+    if (!this.map) return;
+
+    // Événement de déplacement
+    this.map.on('moveend zoomend', () => {
+      this.ngZone.run(() => {
+        if (this.map) {
+          const center = this.map.getCenter();
+          const zoom = this.map.getZoom();
+          const bounds = this.map.getBounds();
+
+          this.mapCenter.set(center);
+          this.mapZoom.set(zoom);
+          this.updateMapBounds(bounds);
+
+          // Mettre à jour les statistiques de cluster
+          this.updateClusterStats();
+
+          this.mapMoveSubject.next({
+            center,
+            zoom,
+            bounds,
+            timestamp: new Date()
+          });
         }
-      ).catch((error) => {
-        console.log('Géolocalisation non accordée:', error);
+      });
+    });
+
+    // Événement de clic sur la carte
+    this.map.on('click', (e: L.LeafletMouseEvent) => {
+      this.ngZone.run(() => {
+        this.selectedPoi.set(null);
+        this.mapClickSubject.next(e.latlng);
+      });
+    });
+
+    // Événements pour optimiser les performances
+    this.map.on('zoomstart', () => {
+      if (this.markerClusterGroup) {
+        this.markerClusterGroup.disableClustering();
+      }
+    });
+
+    this.map.on('zoomend', () => {
+      if (this.markerClusterGroup) {
+        this.markerClusterGroup.enableClustering();
+      }
+    });
+
+    // Événements de cluster
+    this.map.on('cluster:mouseover', (e: any) => {
+      console.log('Cluster hovered:', e.layer.getAllChildMarkers().length, 'markers');
+    });
+  }
+
+  /**
+   * Ajouter les contrôles personnalisés
+   */
+  private addCustomControls(): void {
+    if (!this.map) return;
+
+    // Contrôle de zoom
+    L.control.zoom({ position: 'bottomright' }).addTo(this.map);
+
+    // Contrôle d'échelle
+    L.control.scale({ 
+      position: 'bottomleft',
+      metric: true,
+      imperial: false
+    }).addTo(this.map);
+
+    // Contrôle de couches
+    const layerControl = L.control.layers(
+      {
+        'OpenStreetMap': this.baseLayers.get('osm')!,
+        'Satellite': this.baseLayers.get('satellite')!,
+        'Terrain': this.baseLayers.get('terrain')!
+      },
+      {},
+      { position: 'topright', collapsed: true }
+    ).addTo(this.map);
+  }
+
+  /**
+   * Configuration du filtrage automatique
+   */
+  private setupFilteringSubscription(): void {
+    // Réagir aux changements de filtres
+    this.activeFilters.subscribe(() => {
+      this.applyFilters();
+    });
+  }
+
+  /**
+   * Appliquer les filtres aux POIs
+   */
+  private applyFilters(): void {
+    const allPois = this.visiblePois();
+    const filters = this.activeFilters();
+    
+    let filtered = allPois;
+
+    // Filtrer par catégories
+    if (filters.categories && filters.categories.length > 0) {
+      filtered = filtered.filter(poi => 
+        filters.categories!.includes(poi.category)
+      );
+    }
+
+    // Filtrer par distance
+    if (filters.distance && this.userLocation()) {
+      const userPos = this.userLocation()!;
+      filtered = filtered.filter(poi => {
+        const distance = this.calculateDistance(
+          userPos.latitude, userPos.longitude,
+          poi.latitude, poi.longitude
+        );
+        return distance <= filters.distance!;
       });
     }
+
+    // Filtrer par note
+    if (filters.rating) {
+      filtered = filtered.filter(poi => poi.rating >= filters.rating!);
+    }
+
+    // Filtrer par vérification
+    if (filters.verified !== undefined) {
+      filtered = filtered.filter(poi => poi.isVerified === filters.verified);
+    }
+
+    // Filtrer par caractéristiques
+    if (filters.features && filters.features.length > 0) {
+      filtered = filtered.filter(poi => {
+        return filters.features!.some(feature => {
+          switch (feature) {
+            case 'restaurant': return poi.isRestaurant;
+            case 'transport': return poi.isTransport;
+            case 'stadium': return poi.isStadium;
+            case 'booking': return poi.isBooking;
+            default: return false;
+          }
+        });
+      });
+    }
+
+    this.filteredPois.set(filtered);
+    this.updatePoiMarkers(filtered);
   }
 
   /**
-   * Centrer la carte sur l'utilisateur
+   * Mettre à jour les POIs visibles
    */
-  centerOnUser(): void {
-    if (this.geoLocationLoading()) return;
+  updateVisiblePois(pois: PoiModel[]): void {
+    this.visiblePois.set(pois);
+    this.applyFilters(); // Applique automatiquement les filtres
+  }
 
-    this.geoLocationLoading.set(true);
+  /**
+   * Ajouter des marqueurs POI
+   */
+  private updatePoiMarkers(pois: PoiModel[]): void {
+    if (!this.markerClusterGroup) return;
 
-    this.mapService.centerOnUser().then(() => {
-      this.userLocationActive.set(true);
-      this.geoLocationLoading.set(false);
-      this.notificationService.showSuccess('Position mise à jour', 'Géolocalisation');
-    }).catch((error) => {
-      this.geoLocationLoading.set(false);
-      this.notificationService.showError(
-        'Impossible d\'obtenir votre position',
-        'Géolocalisation'
-      );
+    // Nettoyer les marqueurs existants
+    this.clearAllMarkers();
+
+    // Grouper les POIs par catégorie pour l'optimisation
+    const poiGroups = this.groupPoisByCategory(pois);
+    
+    // Ajouter les marqueurs par groupes
+    Object.entries(poiGroups).forEach(([category, categoryPois]) => {
+      this.addPoiMarkersForCategory(category, categoryPois);
     });
+
+    // Mettre à jour les statistiques
+    this.updateClusterStats();
   }
 
   /**
-   * Contrôles de zoom
+   * Grouper les POIs par catégorie
    */
-  zoomIn(): void {
-    const map = this.mapService.getMap();
-    if (map) {
-      map.zoomIn();
-    }
-  }
-
-  zoomOut(): void {
-    const map = this.mapService.getMap();
-    if (map) {
-      map.zoomOut();
-    }
-  }
-
-  /**
-   * Réinitialiser la vue
-   */
-  resetView(): void {
-    const map = this.mapService.getMap();
-    if (map) {
-      map.setView(
-        [environment.map.defaultCenter.lat, environment.map.defaultCenter.lng],
-        environment.map.defaultZoom
-      );
-    }
-  }
-
-  /**
-   * Basculer l'affichage des couches
-   */
-  toggleLayers(): void {
-    this.layersVisible.update(value => !value);
-  }
-
-  /**
-   * Changer la couche de base
-   */
-  changeBaseLayer(layer: string): void {
-    this.selectedBaseLayer.set(layer);
-    // Implémenter le changement de couche
-    console.log('Changer couche de base:', layer);
-  }
-
-  /**
-   * Basculer l'affichage du trafic
-   */
-  toggleTraffic(): void {
-    this.showTraffic.update(value => !value);
-    // Implémenter l'affichage du trafic
-    console.log('Basculer trafic:', this.showTraffic());
-  }
-
-  /**
-   * Basculer l'affichage du rayon de recherche
-   */
-  toggleSearchRadius(): void {
-    this.showSearchRadius.update(value => !value);
-
-    if (this.showSearchRadius()) {
-      const center = this.mapService.getCenter();
-      this.mapService.showSearchRadius(center, 5); // 5km par défaut
-    } else {
-      this.mapService.hideSearchRadius();
-    }
-  }
-
-  /**
-   * Basculer le mode plein écran
-   */
-  toggleFullscreen(): void {
-    if (!document.fullscreenElement) {
-      const container = this.mapElement.nativeElement.closest('.map-container') as HTMLElement;
-      if (container && container.requestFullscreen) {
-        container.requestFullscreen();
-        this.isFullscreen.set(true);
+  private groupPoisByCategory(pois: PoiModel[]): Record<string, PoiModel[]> {
+    return pois.reduce((groups, poi) => {
+      const category = poi.category || 'other';
+      if (!groups[category]) {
+        groups[category] = [];
       }
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-        this.isFullscreen.set(false);
+      groups[category].push(poi);
+      return groups;
+    }, {} as Record<string, PoiModel[]>);
+  }
+
+  /**
+   * Ajouter des marqueurs pour une catégorie spécifique
+   */
+  private addPoiMarkersForCategory(category: string, pois: PoiModel[]): void {
+    const markers: L.Marker[] = [];
+
+    pois.forEach(poi => {
+      const marker = this.createPoiMarker(poi);
+      if (marker) {
+        markers.push(marker.marker);
+        this.markers.set(poi.id, marker);
       }
+    });
+
+    // Ajouter tous les marqueurs de la catégorie en une fois
+    if (markers.length > 0) {
+      this.markerClusterGroup.addLayers(markers);
     }
   }
 
   /**
-   * Calculer la hauteur de la carte
+   * Créer un marqueur POI
    */
-  private calculateMapHeight(): void {
-    const viewportHeight = window.innerHeight;
-    const headerHeight = 64; // Hauteur approximative du header
-    const footerHeight = 0; // Pas de footer dans map-layout
+  private createPoiMarker(poi: PoiModel): MapMarker | null {
+    try {
+      const icon = this.createPoiIcon(poi);
+      const marker = L.marker([poi.latitude, poi.longitude], { icon });
 
-    this.mapHeight.set(viewportHeight - headerHeight - footerHeight);
-  }
-
-  /**
-   * Configurer l'observer de redimensionnement
-   */
-  private setupResizeObserver(): void {
-    if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(() => {
+      // Événements du marqueur
+      marker.on('click', () => {
         this.ngZone.run(() => {
-          this.calculateMapHeight();
-
-          // Invalider la taille de la carte après redimensionnement
-          setTimeout(() => {
-            const map = this.mapService.getMap();
-            if (map) {
-              map.invalidateSize();
-            }
-          }, 100);
+          this.poiClickSubject.next(poi);
         });
       });
 
-      this.resizeObserver.observe(document.body);
-    } else {
-      // Fallback pour les navigateurs qui ne supportent pas ResizeObserver
-      window.addEventListener('resize', () => {
-        this.calculateMapHeight();
-        setTimeout(() => {
-          const map = this.mapService.getMap();
-          if (map) {
-            map.invalidateSize();
-          }
-        }, 100);
+      marker.on('mouseover', () => {
+        this.ngZone.run(() => {
+          this.hoveredPoi.set(poi);
+          this.markerHoverSubject.next(poi);
+        });
       });
+
+      marker.on('mouseout', () => {
+        this.ngZone.run(() => {
+          this.hoveredPoi.set(null);
+          this.markerHoverSubject.next(null);
+        });
+      });
+
+      // Popup avec informations basiques
+      const popupContent = this.createPopupContent(poi);
+      marker.bindPopup(popupContent, {
+        maxWidth: 300,
+        className: 'custom-popup poi-popup',
+        closeOnClick: false
+      });
+
+      return {
+        id: poi.id,
+        marker,
+        poi,
+        cluster: true,
+        category: poi.category,
+        isVisible: true
+      };
+
+    } catch (error) {
+      console.error('Erreur lors de la création du marqueur pour POI:', poi.id, error);
+      return null;
     }
   }
 
   /**
-   * Formater l'affichage de la position
+   * Créer une icône POI personnalisée
    */
-  formatLocation(position: YaoundeGeolocationPosition): string {
-    const lat = position.latitude.toFixed(4);
-    const lng = position.longitude.toFixed(4);
-    return `${lat}, ${lng}`;
+  private createPoiIcon(poi: PoiModel): L.DivIcon {
+    const category = poi.category.toLowerCase();
+    const isHighRated = poi.rating >= 4.0;
+    const isVerified = poi.isVerified;
+
+    const iconInfo = this.getIconInfo(category);
+    const statusClass = isVerified ? 'verified' : 'unverified';
+    const ratingClass = isHighRated ? 'high-rated' : 'normal-rated';
+
+    return L.divIcon({
+      className: 'poi-marker',
+      html: `
+        <div class="poi-marker-container ${statusClass} ${ratingClass}">
+          <div class="poi-marker-pin" style="background-color: ${iconInfo.color};">
+            <i class="fas fa-${iconInfo.icon}" style="color: white; font-size: 14px;"></i>
+            ${isVerified ? '<div class="verification-badge"><i class="fas fa-check"></i></div>' : ''}
+          </div>
+          ${poi.rating > 0 ? `<div class="rating-badge">${poi.rating.toFixed(1)}</div>` : ''}
+        </div>
+      `,
+      iconSize: [30, 40],
+      iconAnchor: [15, 40],
+      popupAnchor: [0, -40]
+    });
   }
 
   /**
-   * Méthodes publiques pour l'interaction avec le parent
+   * Obtenir les informations d'icône par catégorie
    */
+  private getIconInfo(category: string): { icon: string; color: string } {
+    const iconMap: Record<string, { icon: string; color: string }> = {
+      restaurant: { icon: 'utensils', color: '#ff6b6b' },
+      hotel: { icon: 'bed', color: '#4ecdc4' },
+      attraction: { icon: 'camera', color: '#45b7d1' },
+      service: { icon: 'concierge-bell', color: '#96ceb4' },
+      shopping: { icon: 'shopping-bag', color: '#dda0dd' },
+      transport: { icon: 'bus', color: '#ffa726' },
+      health: { icon: 'plus-circle', color: '#66bb6a' },
+      education: { icon: 'graduation-cap', color: '#ab47bc' },
+      entertainment: { icon: 'film', color: '#ec407a' },
+      default: { icon: 'map-marker-alt', color: '#95a5a6' }
+    };
 
-  public updatePois(pois: PoiModel[]): void {
-    this.mapService.updateVisiblePois(pois);
-  }
-
-  public selectPoi(poi: PoiDetailModel): void {
-    this.mapService.selectedPoi.set(poi);
-    this.mapService.flyToPoi(poi);
-  }
-
-  public searchPois(query: string): SearchResult[] {
-    const visiblePois = this.mapService.visiblePois();
-    return this.mapService.searchPois(query, visiblePois);
-  }
-
-  public fitToPois(pois: PoiModel[]): void {
-    this.mapService.fitToPois(pois);
-  }
-
-  public getMapBounds(): L.LatLngBounds | null {
-    return this.mapService.getBounds();
-  }
-
-  public getMapCenter(): L.LatLng {
-    return this.mapService.getCenter();
-  }
-
-  public getMapZoom(): number {
-    return this.mapService.getZoom();
+    return iconMap[category] || iconMap['default'];
   }
 
   /**
-   * Interface pour les événements de carte
+   * Créer le contenu de popup
    */
-  public onMapMove(): Observable<MapViewState> {
-    return this.mapService.mapMove$;
+  private createPopupContent(poi: PoiModel): string {
+    const stars = this.generateStarRating(poi.rating);
+    const distance = this.getDistanceFromUser(poi);
+
+    return `
+      <div class="poi-popup">
+        <div class="poi-popup-header">
+          <h3>${poi.name}</h3>
+          ${poi.isVerified ? '<span class="verified-badge"><i class="fas fa-check-circle"></i> Vérifié</span>' : ''}
+        </div>
+        
+        ${poi.image ? `<img src="${poi.image}" alt="${poi.name}" class="poi-popup-image">` : ''}
+        
+        <p class="poi-popup-description">${this.truncateText(poi.description, 100)}</p>
+        
+        <div class="poi-popup-info">
+          <div class="poi-rating">
+            ${stars}
+            <span class="rating-count">(${poi.ratingCount})</span>
+          </div>
+          
+          <div class="poi-category">
+            <i class="fas fa-tag"></i>
+            ${poi.category}
+          </div>
+          
+          ${distance ? `<div class="poi-distance"><i class="fas fa-location-arrow"></i> ${distance}</div>` : ''}
+        </div>
+        
+        <div class="poi-popup-actions">
+          <button onclick="window.dispatchEvent(new CustomEvent('poi-detail', {detail: '${poi.id}'}))" 
+                  class="btn-primary">
+            Voir détails
+          </button>
+          <button onclick="window.dispatchEvent(new CustomEvent('poi-directions', {detail: '${poi.id}'}))" 
+                  class="btn-secondary">
+            Itinéraire
+          </button>
+        </div>
+      </div>
+    `;
   }
 
-  public onPoiClick(): Observable<PoiModel> {
-    return this.mapService.poiClick$;
+  /**
+   * Mettre à jour le marqueur de position utilisateur
+   */
+  private updateUserLocationMarker(position: YaoundeGeolocationPosition): void {
+    if (!this.map) return;
+
+    // Supprimer l'ancien marqueur
+    if (this.userLocationMarker) {
+      this.map.removeLayer(this.userLocationMarker);
+    }
+
+    // Créer le nouveau marqueur
+    const userIcon = L.divIcon({
+      className: 'user-location-marker',
+      html: `
+        <div class="user-location-pulse">
+          <div class="user-location-dot"></div>
+        </div>
+      `,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+
+    this.userLocationMarker = L.marker([position.latitude, position.longitude], { 
+      icon: userIcon,
+      zIndexOffset: 1000
+    }).addTo(this.map);
+
+    // Ajouter le cercle de précision
+    if (position.accuracy && position.accuracy < 1000) {
+      L.circle([position.latitude, position.longitude], {
+        radius: position.accuracy,
+        color: '#4285f4',
+        fillColor: '#4285f4',
+        fillOpacity: 0.1,
+        weight: 1
+      }).addTo(this.map);
+    }
   }
 
-  public onMapClick(): Observable<L.LatLng> {
-    return this.mapService.mapClick$;
+  /**
+   * Centrer la carte sur la position utilisateur
+   */
+  centerOnUser(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.geolocationService.getCurrentPosition(true).subscribe({
+        next: (position) => {
+          if (this.map) {
+            this.map.flyTo([position.latitude, position.longitude], 16, {
+              duration: 1.5
+            });
+            resolve();
+          }
+        },
+        error: (error) => {
+          console.error('Impossible de centrer sur la position utilisateur:', error);
+          reject(error);
+        }
+      });
+    });
+  }
+
+  /**
+   * Voler vers un POI
+   */
+  flyToPoi(poi: PoiModel, zoom: number = 17): void {
+    if (!this.map) return;
+
+    this.map.flyTo([poi.latitude, poi.longitude], zoom, {
+      duration: 1.5,
+      easeLinearity: 0.5
+    });
+
+    // Sélectionner le POI après le vol
+    setTimeout(() => {
+      this.poiClickSubject.next(poi);
+    }, 1500);
+  }
+
+  /**
+   * Adapter la vue aux POIs visibles
+   */
+  fitToPois(pois: PoiModel[], padding: number = 50): void {
+    if (!this.map || pois.length === 0) return;
+
+    const group = L.featureGroup(
+      pois.map(poi => L.marker([poi.latitude, poi.longitude]))
+    );
+
+    this.map.fitBounds(group.getBounds(), {
+      padding: [padding, padding],
+      maxZoom: 16
+    });
+  }
+
+  /**
+   * Ajouter un cercle de recherche
+   */
+  showSearchRadius(center: L.LatLng, radiusKm: number): void {
+    if (!this.map) return;
+
+    // Supprimer l'ancien cercle
+    if (this.searchCircle) {
+      this.map.removeLayer(this.searchCircle);
+    }
+
+    // Ajouter le nouveau cercle
+    this.searchCircle = L.circle(center, {
+      radius: radiusKm * 1000, // Convertir km en mètres
+      color: '#4285f4',
+      fillColor: '#4285f4',
+      fillOpacity: 0.1,
+      weight: 2,
+      dashArray: '5, 5'
+    }).addTo(this.map);
+  }
+
+  /**
+   * Supprimer le cercle de recherche
+   */
+  hideSearchRadius(): void {
+    if (this.searchCircle && this.map) {
+      this.map.removeLayer(this.searchCircle);
+      this.searchCircle = null;
+    }
+  }
+
+  /**
+   * Rechercher des POIs par nom/description
+   */
+  searchPois(query: string, pois: PoiModel[]): SearchResult[] {
+    if (!query || query.length < 2) return [];
+
+    const searchTerms = query.toLowerCase().split(' ');
+    
+    return pois
+      .map(poi => ({
+        poi,
+        relevance: this.calculateRelevance(poi, searchTerms)
+      }))
+      .filter(result => result.relevance > 0)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 50); // Limiter les résultats
+  }
+
+  /**
+   * Calculer la pertinence d'un POI pour une recherche
+   */
+  private calculateRelevance(poi: PoiModel, searchTerms: string[]): number {
+    let score = 0;
+    const poiText = `${poi.name} ${poi.description} ${poi.category}`.toLowerCase();
+
+    searchTerms.forEach(term => {
+      if (poi.name.toLowerCase().includes(term)) {
+        score += 10; // Titre = poids le plus élevé
+      } else if (poi.category.toLowerCase().includes(term)) {
+        score += 5; // Catégorie = poids moyen
+      } else if (poi.description.toLowerCase().includes(term)) {
+        score += 2; // Description = poids faible
+      }
+    });
+
+    // Bonus pour les POIs bien notés et vérifiés
+    if (poi.rating >= 4.0) score += 1;
+    if (poi.isVerified) score += 1;
+
+    return score;
+  }
+
+  /**
+   * Gestion des couches de carte
+   */
+  changeBaseLayer(layerName: string): void {
+    if (!this.map || !this.baseLayers.has(layerName)) return;
+
+    // Retirer la couche actuelle
+    const currentLayer = this.baseLayers.get(this.currentBaseLayer);
+    if (currentLayer) {
+      this.map.removeLayer(currentLayer);
+    }
+
+    // Ajouter la nouvelle couche
+    const newLayer = this.baseLayers.get(layerName);
+    if (newLayer) {
+      newLayer.addTo(this.map);
+      this.currentBaseLayer = layerName;
+    }
+  }
+
+  /**
+   * Basculer une couche overlay
+   */
+  toggleOverlayLayer(layerName: string): void {
+    if (!this.map) return;
+
+    const layer = this.overlayLayers.get(layerName);
+    if (!layer) return;
+
+    if (this.map.hasLayer(layer)) {
+      this.map.removeLayer(layer);
+    } else {
+      this.map.addLayer(layer);
+    }
+  }
+
+  /**
+   * Activer/désactiver la heatmap
+   */
+  toggleHeatmap(enable: boolean): void {
+    if (!this.map) return;
+
+    if (enable && !this.heatmapLayer) {
+      // Créer la heatmap à partir des POIs
+      const heatData = this.filteredPois().map(poi => [
+        poi.latitude,
+        poi.longitude,
+        poi.rating * 0.2 // Intensité basée sur la note
+      ]);
+
+      // Note: Nécessite le plugin leaflet-heat
+      // this.heatmapLayer = L.heatLayer(heatData, {radius: 25}).addTo(this.map);
+    } else if (!enable && this.heatmapLayer) {
+      this.map.removeLayer(this.heatmapLayer);
+      this.heatmapLayer = null;
+    }
+  }
+
+  /**
+   * Gestion des filtres
+   */
+  updateFilters(filters: FilterOptions): void {
+    this.activeFilters.set(filters);
+  }
+
+  addFilter(key: keyof FilterOptions, value: any): void {
+    this.activeFilters.update(current => ({
+      ...current,
+      [key]: value
+    }));
+  }
+
+  removeFilter(key: keyof FilterOptions): void {
+    this.activeFilters.update(current => {
+      const newFilters = { ...current };
+      delete newFilters[key];
+      return newFilters;
+    });
+  }
+
+  clearFilters(): void {
+    this.activeFilters.set({});
+  }
+
+  /**
+   * Mettre à jour les statistiques de cluster
+   */
+  private updateClusterStats(): void {
+    if (!this.markerClusterGroup) return;
+
+    const totalMarkers = this.markers.size;
+    const visibleMarkers = Array.from(this.markers.values())
+      .filter(marker => marker.isVisible).length;
+    
+    // Statistiques approximatives du clustering
+    const clusters = this.markerClusterGroup.getLayers ? 
+      this.markerClusterGroup.getLayers().length : 0;
+    
+    this.clusterStats.set({
+      totalMarkers,
+      visibleMarkers,
+      clusteredMarkers: totalMarkers - visibleMarkers,
+      clusters
+    });
+  }
+
+  /**
+   * Optimisation des performances
+   */
+  private optimizeMarkerVisibility(): void {
+    if (!this.map) return;
+
+    const bounds = this.map.getBounds();
+    
+    this.markers.forEach((mapMarker, id) => {
+      const { marker, poi } = mapMarker;
+      const markerLatLng = marker.getLatLng();
+      const isInBounds = bounds.contains(markerLatLng);
+      
+      if (isInBounds !== mapMarker.isVisible) {
+        mapMarker.isVisible = isInBounds;
+        
+        if (isInBounds) {
+          this.markerClusterGroup.addLayer(marker);
+        } else {
+          this.markerClusterGroup.removeLayer(marker);
+        }
+      }
+    });
+  }
+
+  /**
+   * Utilitaires privés
+   */
+  private updateMapBounds(bounds: L.LatLngBounds): void {
+    this.mapBounds.set({
+      north: bounds.getNorth(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      west: bounds.getWest()
+    });
+  }
+
+  private isPoiInBounds(poi: PoiModel, bounds: MapBounds | null): boolean {
+    if (!bounds) return true;
+    
+    return poi.latitude >= bounds.south &&
+           poi.latitude <= bounds.north &&
+           poi.longitude >= bounds.west &&
+           poi.longitude <= bounds.east;
+  }
+
+  private getCategoryStats(pois: PoiModel[]): Record<string, number> {
+    return pois.reduce((stats, poi) => {
+      stats[poi.category] = (stats[poi.category] || 0) + 1;
+      return stats;
+    }, {} as Record<string, number>);
+  }
+
+  private calculateAverageRating(pois: PoiModel[]): number {
+    const validRatings = pois.filter(poi => poi.rating > 0);
+    if (validRatings.length === 0) return 0;
+    
+    const total = validRatings.reduce((sum, poi) => sum + poi.rating, 0);
+    return Number((total / validRatings.length).toFixed(1));
+  }
+
+  private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = this.deg2rad(lat2 - lat1);
+    const dLng = this.deg2rad(lng2 - lng1);
+    
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(this.deg2rad(lat1)) * Math.cos(this.deg2rad(lat2)) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private deg2rad(deg: number): number {
+    return deg * (Math.PI / 180);
+  }
+
+  private generateStarRating(rating: number): string {
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+    let stars = '';
+    
+    for (let i = 0; i < fullStars; i++) {
+      stars += '<i class="fas fa-star" style="color: #fbbf24;"></i>';
+    }
+    
+    if (hasHalfStar) {
+      stars += '<i class="fas fa-star-half-alt" style="color: #fbbf24;"></i>';
+    }
+    
+    for (let i = 0; i < emptyStars; i++) {
+      stars += '<i class="far fa-star" style="color: #d1d5db;"></i>';
+    }
+
+    return stars;
+  }
+
+  private getDistanceFromUser(poi: PoiModel): string | null {
+    const userPos = this.userLocation();
+    if (!userPos) return null;
+
+    const distance = this.calculateDistance(
+      userPos.latitude, userPos.longitude,
+      poi.latitude, poi.longitude
+    );
+
+    if (distance < 1) {
+      return `${Math.round(distance * 1000)} m`;
+    } else {
+      return `${distance.toFixed(1)} km`;
+    }
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  }
+
+  private clearAllMarkers(): void {
+    if (this.markerClusterGroup) {
+      this.markerClusterGroup.clearLayers();
+    }
+    this.markers.clear();
+  }
+
+  /**
+   * Méthodes d'export pour l'interface
+   */
+  exportMapAsImage(): Promise<string> {
+    return new Promise((resolve) => {
+      if (!this.map) {
+        resolve('');
+        return;
+      }
+
+      // Utiliser leaflet-image ou html2canvas pour capturer la carte
+      // Implementation dépend de la bibliothèque choisie
+      resolve('data:image/png;base64,...');
+    });
+  }
+
+  /**
+   * Gestion des événements personnalisés
+   */
+  onPoiSelected(callback: (poi: PoiModel) => void): void {
+    this.poiClick$.subscribe(callback);
+  }
+
+  onMapMoved(callback: (state: MapViewState) => void): void {
+    this.mapMove$.subscribe(callback);
+  }
+
+  onMarkerHovered(callback: (poi: PoiModel | null) => void): void {
+    this.markerHover$.subscribe(callback);
+  }
+
+  /**
+   * Nettoyage lors de la destruction
+   */
+  destroy(): void {
+    if (this.map) {
+      this.map.remove();
+      this.map = null;
+    }
+    
+    this.markers.clear();
+    this.baseLayers.clear();
+    this.overlayLayers.clear();
+    this.markerClusterGroup = null;
+    this.userLocationMarker = null;
+    this.searchCircle = null;
+    this.heatmapLayer = null;
+  }
+
+  /**
+   * Getters pour l'état de la carte
+   */
+  getMap(): L.Map | null {
+    return this.map;
+  }
+
+  getCenter(): L.LatLng {
+    return this.map ? this.map.getCenter() : this.mapCenter();
+  }
+
+  getZoom(): number {
+    return this.map ? this.map.getZoom() : this.mapZoom();
+  }
+
+  getBounds(): L.LatLngBounds | null {
+    return this.map ? this.map.getBounds() : null;
+  }
+
+  isReady(): boolean {
+    return this.isMapReady();
+  }
+
+  getCurrentBaseLayer(): string {
+    return this.currentBaseLayer;
+  }
+
+  getAvailableBaseLayers(): string[] {
+    return Array.from(this.baseLayers.keys());
+  }
+
+  getMarkerCount(): number {
+    return this.markers.size;
+  }
+
+  getVisibleMarkerCount(): number {
+    return Array.from(this.markers.values())
+      .filter(marker => marker.isVisible).length;
+  }
+
+  /**
+   * Debug et diagnostics
+   */
+  getMapDiagnostics(): any {
+    return {
+      mapReady: this.isMapReady(),
+      center: this.getCenter(),
+      zoom: this.getZoom(),
+      bounds: this.getBounds(),
+      markers: this.getMarkerCount(),
+      visibleMarkers: this.getVisibleMarkerCount(),
+      currentBaseLayer: this.currentBaseLayer,
+      clusterStats: this.clusterStats(),
+      activeFilters: this.activeFilters(),
+      userLocation: this.userLocation()
+    };
   }
 }
