@@ -420,20 +420,20 @@ export class MapService {
   /**
    * Configuration du filtrage automatique
    */
-  private setupMapSubscriptions(): void {
-    // Écouter les événements de la carte
-    this.mapService.mapMove$.subscribe(viewState => {
-      this.mapMove.emit(viewState);
-    });
+  // private setupMapSubscriptions(): void {
+  //   // Écouter les événements de la carte
+  //   this.mapService.mapMove$.subscribe(viewState => {
+  //     this.mapMove.emit(viewState);
+  //   });
 
-    this.mapService.poiClick$.subscribe(poi => {
-      this.poiClick.emit(poi);
-    });
+  //   this.mapService.poiClick$.subscribe(poi => {
+  //     this.poiClick.emit(poi);
+  //   });
 
-    this.mapService.mapClick$.subscribe(latlng => {
-      this.mapClick.emit(latlng);
-    });
-  }
+  //   this.mapService.mapClick$.subscribe(latlng => {
+  //     this.mapClick.emit(latlng);
+  //   });
+  // }
 
   /**
    * Appliquer les filtres aux POIs
