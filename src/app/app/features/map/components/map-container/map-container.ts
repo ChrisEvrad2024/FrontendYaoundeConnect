@@ -420,10 +420,18 @@ export class MapService {
   /**
    * Configuration du filtrage automatique
    */
-  private setupFilteringSubscription(): void {
-    // Réagir aux changements de filtres
-    this.activeFilters.subscribe(() => {
-      this.applyFilters();
+  private setupMapSubscriptions(): void {
+    // Écouter les événements de la carte
+    this.mapService.mapMove$.subscribe(viewState => {
+      this.mapMove.emit(viewState);
+    });
+
+    this.mapService.poiClick$.subscribe(poi => {
+      this.poiClick.emit(poi);
+    });
+
+    this.mapService.mapClick$.subscribe(latlng => {
+      this.mapClick.emit(latlng);
     });
   }
 

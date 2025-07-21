@@ -25,7 +25,7 @@ export const environment = {
             reconnection: true,
             reconnectionAttempts: 5,
             reconnectionDelay: 2000,
-            autoConnect: false // Géré manuellement par le service
+            autoConnect: false
         }
     },
 
