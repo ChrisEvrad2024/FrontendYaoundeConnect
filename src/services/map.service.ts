@@ -1,7 +1,6 @@
 import { Injectable, signal, computed } from '@angular/core';
 import * as L from 'leaflet';
 import { BehaviorSubject, Observable } from 'rxjs';
-import { PoiModel } from '../models/poi.model';
 
 @Injectable({
     providedIn: 'root'
@@ -85,7 +84,7 @@ export class MapService {
             default: '#95A5A6'
         };
 
-        const color = iconColors[category] || iconColors.default;
+        const color = iconColors[category];
 
         return L.divIcon({
             className: 'custom-marker',
@@ -108,7 +107,7 @@ export class MapService {
             shopping: 'shopping-cart',
             default: 'map-marker-alt'
         };
-        return icons[category] || icons.default;
+        return icons[category];
     }
 
     private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {

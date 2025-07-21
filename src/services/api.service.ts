@@ -4,7 +4,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams, HttpErrorResponse } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { catchError, retry } from 'rxjs/operators';
-import { environment } from '../../../environments/environment.development';
+import { environment } from '../environments/environment.development';
 import { ToastrService } from 'ngx-toastr';
 
 export interface ApiResponse<T> {
