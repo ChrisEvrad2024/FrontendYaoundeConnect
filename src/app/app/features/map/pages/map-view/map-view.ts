@@ -1,12 +1,12 @@
 // src/app/features/map/pages/map-view/map-view.ts
 
-import { 
-  Component, 
-  OnInit, 
-  OnDestroy, 
-  ViewChild, 
-  inject, 
-  signal, 
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  ViewChild,
+  inject,
+  signal,
   computed,
   effect
 } from '@angular/core';
@@ -25,10 +25,11 @@ import { NotificationService } from '../../../../core/services/notification';
 import { LoadingService } from '../../../../core/services/loading.service';
 
 import { PoiModel, PoiDetailModel } from '../../../../../core/models/poi.model';
-import { ApiService } from '../../../../../../services/api.service';
+import { ApiService, PaginatedResponse } from '../../../../../../services/api.service';
 
-import { LucideAngularModule, 
-  MapPin, Search, Filter, Navigation, Layers, 
+import {
+  LucideAngularModule,
+  MapPin, Search, Filter, Navigation, Layers,
   Settings, X, Menu, Maximize2, RotateCcw, ZoomIn, ZoomOut
 } from 'lucide-angular';
 
@@ -749,13 +750,13 @@ export class MapView implements OnInit, OnDestroy {
   public readonly activeFiltersCount = computed(() => {
     const filters = this.currentFilters();
     let count = 0;
-    
+
     if (filters.categories?.length) count++;
     if (filters.distance) count++;
     if (filters.rating) count++;
     if (filters.verified !== undefined) count++;
     if (filters.features?.length) count++;
-    
+
     return count;
   });
 
@@ -800,15 +801,15 @@ export class MapView implements OnInit, OnDestroy {
     try {
       // Charger les catégories disponibles
       this.loadingService.show('Chargement des catégories...');
-      const categories = await this.apiService.get('/categories').toPromise();
+      const categories = await this.apiService.get<any[]>('/categories').toPromise();
       this.availableCategories.set(categories || []);
 
       // Charger les POIs initiaux
       this.loadingService.show('Chargement des lieux...');
-      const pois = await this.apiService.get('/poi', { limit: 100 }).toPromise();
-      
-      if (this.mapContainer) {
-        this.mapContainer.updatePois(pois.data || []);
+      const pois = await this.apiService.get<PaginatedResponse<PoiModel>>('/poi').toPromise();
+
+      if (this.mapContainer && pois?.data) {
+        this.mapContainer.updatePois(pois.data);
       }
 
     } catch (error) {
@@ -851,16 +852,18 @@ export class MapView implements OnInit, OnDestroy {
     }
   }
 
+  // Remplacez toutes les méthodes dans map-view.ts par ceci:
+
   private async loadPoisInView(bounds: L.LatLngBounds): Promise<void> {
     try {
       const params = {
         bounds: `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`,
-        limit: 200
+        limit: '200'
       };
 
-      const response = await this.apiService.get('/poi/nearby', params).toPromise();
-      
-      if (this.mapContainer && response.data) {
+      const response = await this.apiService.get<{ data: PoiModel[] }>('/poi/nearby', params).toPromise();
+
+      if (this.mapContainer && response?.data) {
         this.mapContainer.updatePois(response.data);
       }
     } catch (error) {
@@ -871,11 +874,38 @@ export class MapView implements OnInit, OnDestroy {
   private async loadPoiDetails(poiId: string): Promise<void> {
     try {
       this.loadingService.show('Chargement des détails...');
-      const poi = await this.apiService.get(`/poi/${poiId}`).toPromise();
-      this.selectedPoi.set(poi);
+      const poi = await this.apiService.get<PoiDetailModel>(`/poi/${poiId}`).toPromise();
+
+      if (poi) {
+        this.selectedPoi.set(poi);
+      }
     } catch (error) {
       console.error('Erreur lors du chargement des détails:', error);
       this.notificationService.showError('Impossible de charger les détails', 'Erreur');
+    } finally {
+      this.loadingService.hide();
+    }
+  }
+
+  private async performTextSearch(query: string): Promise<void> {
+    try {
+      this.loadingService.show('Recherche en cours...');
+      const results = await this.apiService.get<{ data: PoiModel[] }>('/poi/search', { q: query }).toPromise();
+
+      if (results?.data && results.data.length > 0) {
+        this.mapContainer.updatePois(results.data);
+        this.mapContainer.fitToPois(results.data);
+
+        this.notificationService.showSuccess(
+          `${results.data.length} résultat(s) trouvé(s)`,
+          'Recherche'
+        );
+      } else {
+        this.notificationService.showWarning('Aucun résultat trouvé', 'Recherche');
+      }
+    } catch (error) {
+      console.error('Erreur de recherche:', error);
+      this.notificationService.showError('Erreur lors de la recherche', 'Erreur');
     } finally {
       this.loadingService.hide();
     }
@@ -892,29 +922,7 @@ export class MapView implements OnInit, OnDestroy {
     }
   }
 
-  private async performTextSearch(query: string): Promise<void> {
-    try {
-      this.loadingService.show('Recherche en cours...');
-      const results = await this.apiService.get('/poi/search', { q: query }).toPromise();
-      
-      if (results.data && results.data.length > 0) {
-        this.mapContainer.updatePois(results.data);
-        this.mapContainer.fitToPois(results.data);
-        
-        this.notificationService.showSuccess(
-          `${results.data.length} résultat(s) trouvé(s)`,
-          'Recherche'
-        );
-      } else {
-        this.notificationService.showWarning('Aucun résultat trouvé', 'Recherche');
-      }
-    } catch (error) {
-      console.error('Erreur de recherche:', error);
-      this.notificationService.showError('Erreur lors de la recherche', 'Erreur');
-    } finally {
-      this.loadingService.hide();
-    }
-  }
+
 
   handleFiltersChange(filters: any): void {
     this.currentFilters.set(filters);
@@ -962,7 +970,7 @@ export class MapView implements OnInit, OnDestroy {
 
   async centerOnUser(): Promise<void> {
     this.locationLoading.set(true);
-    
+
     try {
       await this.mapService.centerOnUser();
       this.notificationService.showSuccess('Position mise à jour', 'Géolocalisation');
@@ -983,7 +991,7 @@ export class MapView implements OnInit, OnDestroy {
 
   toggleOverlay(overlayId: string): void {
     this.mapService.toggleOverlayLayer(overlayId);
-    
+
     this.activeOverlays.update(current => {
       const index = current.indexOf(overlayId);
       if (index >= 0) {
@@ -1063,7 +1071,7 @@ export class MapView implements OnInit, OnDestroy {
   formatUserLocation(): string {
     const location = this.userLocation();
     if (!location) return '';
-    
+
     return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
   }
 
@@ -1072,14 +1080,4 @@ export class MapView implements OnInit, OnDestroy {
     const diagnostics = this.mapService.getMapDiagnostics();
     console.log('Diagnostics de carte:', diagnostics);
   }
-} {
-      padding: 4px;
-      border: none;
-      background: none;
-      color: #6b7280;
-      cursor: pointer;
-      border-radius: 4px;
-      transition: all 0.2s ease;
-    }
-
-    .close-btn
+}

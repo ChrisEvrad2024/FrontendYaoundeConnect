@@ -1,13 +1,15 @@
+import { PoiDetailModel } from './../../../../core/models/poi.model';
 // src/app/features/map/services/map.service.ts
 
 import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
 import { BehaviorSubject, Observable, Subject, fromEvent } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 import * as L from 'leaflet';
-import 'leaflet.markercluster';
-import { PoiModel, PoiDetailModel } from '../../../../core/models/poi.model';
-import { GeolocationService, YaoundeGeolocationPosition } from '../../../core/services/geolocation';
-import { environment } from '../../../../../environments/environment.development';
+import 'leaflet.markercluster/dist/leaflet.markercluster';
+import { PoiModel } from './../../../../core/models/poi.model';
+import { GeolocationService } from './../../../core/services/geolocation';
+import { YaoundeGeolocationPosition } from './../../../core/services/geolocation';
+import { environment } from './../../../../../environments/environment';
 
 // Étendre L avec les types MarkerCluster
 declare module 'leaflet' {
@@ -21,6 +23,11 @@ declare module 'leaflet' {
       spiderfyOnMaxZoom?: boolean;
       showCoverageOnHover?: boolean;
       zoomToBoundsOnClick?: boolean;
+      disableClusteringAtZoom?: number;
+      removeOutsideVisibleBounds?: boolean;
+      animate?: boolean;
+      animateAddingMarkers?: boolean;
+      iconCreateFunction?: (cluster: any) => L.DivIcon;
     }
   }
 
@@ -32,6 +39,8 @@ export interface MapMarker {
   marker: L.Marker;
   poi: PoiModel;
   cluster?: boolean;
+  category: string;
+  isVisible: boolean;
 }
 
 export interface MapBounds {
@@ -54,6 +63,21 @@ export interface MapViewState {
   timestamp: Date;
 }
 
+export interface MarkerClusterStats {
+  totalMarkers: number;
+  visibleMarkers: number;
+  clusteredMarkers: number;
+  clusters: number;
+}
+
+export interface FilterOptions {
+  categories?: string[];
+  distance?: number;
+  rating?: number;
+  verified?: boolean;
+  features?: string[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -67,37 +91,55 @@ export class MapService {
   private markers = new Map<string, MapMarker>();
   private userLocationMarker: L.Marker | null = null;
   private searchCircle: L.Circle | null = null;
+  private heatmapLayer: L.Layer | null = null;
+
+  // Couches de carte
+  private baseLayers = new Map<string, L.TileLayer>();
+  private overlayLayers = new Map<string, L.Layer>();
+  private currentBaseLayer = 'osm';
 
   // Signals pour l'état réactif
   public readonly selectedPoi = signal<PoiDetailModel | null>(null);
   public readonly hoveredPoi = signal<PoiModel | null>(null);
   public readonly visiblePois = signal<PoiModel[]>([]);
-  public readonly mapCenter = signal<L.LatLng>(L.latLng(environment.map.defaultCenter.lat, environment.map.defaultCenter.lng));
+  public readonly filteredPois = signal<PoiModel[]>([]);
+  public readonly mapCenter = signal<L.LatLng>(
+    L.latLng(environment.map.defaultCenter.lat, environment.map.defaultCenter.lng)
+  );
   public readonly mapZoom = signal<number>(environment.map.defaultZoom);
   public readonly userLocation = signal<YaoundeGeolocationPosition | null>(null);
   public readonly isMapReady = signal<boolean>(false);
   public readonly mapBounds = signal<MapBounds | null>(null);
+  public readonly activeFilters = signal<FilterOptions>({});
+  public readonly clusterStats = signal<MarkerClusterStats>({
+    totalMarkers: 0,
+    visibleMarkers: 0,
+    clusteredMarkers: 0,
+    clusters: 0
+  });
 
   // Observables pour les événements de carte
   private mapMoveSubject = new Subject<MapViewState>();
   private poiClickSubject = new Subject<PoiModel>();
   private mapClickSubject = new Subject<L.LatLng>();
+  private markerHoverSubject = new Subject<PoiModel | null>();
 
   public readonly mapMove$ = this.mapMoveSubject.asObservable().pipe(
     debounceTime(300),
-    distinctUntilChanged((prev, curr) => 
+    distinctUntilChanged((prev, curr) =>
       prev.center.equals(curr.center) && prev.zoom === curr.zoom
     )
   );
 
   public readonly poiClick$ = this.poiClickSubject.asObservable();
   public readonly mapClick$ = this.mapClickSubject.asObservable();
+  public readonly markerHover$ = this.markerHoverSubject.asObservable();
 
   // Computed signals
   public readonly nearbyPois = computed(() => {
     const location = this.userLocation();
-    const pois = this.visiblePois();
-    
+    const pois = this.filteredPois();
+
     if (!location) return [];
 
     return pois
@@ -115,25 +157,23 @@ export class MapService {
 
   public readonly mapStats = computed(() => {
     const pois = this.visiblePois();
+    const filtered = this.filteredPois();
     const bounds = this.mapBounds();
-    
+
     return {
       totalPois: pois.length,
+      filteredPois: filtered.length,
       visiblePois: pois.filter(poi => this.isPoiInBounds(poi, bounds)).length,
       nearbyPois: this.nearbyPois().length,
-      categories: this.getCategoryStats(pois),
-      averageRating: this.calculateAverageRating(pois)
+      categories: this.getCategoryStats(filtered),
+      averageRating: this.calculateAverageRating(filtered),
+      clusterInfo: this.clusterStats()
     };
   });
 
   constructor() {
     // Configuration des icônes Leaflet par défaut
-    delete (L.Icon.Default.prototype as any)._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'assets/marker-icon-2x.png',
-      iconUrl: 'assets/marker-icon.png',
-      shadowUrl: 'assets/marker-shadow.png',
-    });
+    this.configureLeafletIcons();
 
     // Écouter les changements de géolocalisation
     this.geolocationService.getCurrentPosition$().subscribe(position => {
@@ -141,6 +181,21 @@ export class MapService {
         this.userLocation.set(position);
         this.updateUserLocationMarker(position);
       }
+    });
+
+    // Filtrer les POIs quand les filtres changent
+    // this.setupFilteringSubscription();
+  }
+
+  /**
+   * Configuration des icônes Leaflet
+   */
+  private configureLeafletIcons(): void {
+    delete (L.Icon.Default.prototype as any)._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'assets/leaflet/marker-icon-2x.png',
+      iconUrl: 'assets/leaflet/marker-icon.png',
+      shadowUrl: 'assets/leaflet/marker-shadow.png',
     });
   }
 
@@ -156,22 +211,20 @@ export class MapService {
           zoom: environment.map.defaultZoom,
           zoomControl: false,
           attributionControl: false,
-          preferCanvas: true, // Meilleure performance pour beaucoup de marqueurs
+          preferCanvas: true,
           worldCopyJump: true,
           maxBounds: [
             [2.0, 9.0],  // Sud-Ouest du Cameroun
-            [6.0, 14.0]  // Nord-Est du Cameroun
-          ]
+            [6.0, 14.0]  // Nord-Est du Cameroun (élargi pour couvrir tout le Cameroun)
+          ],
+          maxBoundsViscosity: 1.0
         });
 
-        // Ajouter la couche de tuiles OpenStreetMap
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: environment.map.maxZoom,
-          attribution: '© OpenStreetMap contributors',
-          detectRetina: true,
-          updateWhenIdle: false,
-          keepBuffer: 4
-        }).addTo(this.map);
+        // Initialiser les couches de base
+        this.initializeBaseLayers();
+
+        // Ajouter la couche de base par défaut
+        this.baseLayers.get('osm')?.addTo(this.map);
 
         // Initialiser le clustering de marqueurs
         this.initializeMarkerClustering();
@@ -193,6 +246,40 @@ export class MapService {
   }
 
   /**
+   * Initialiser les couches de base
+   */
+  private initializeBaseLayers(): void {
+    if (!this.map) return;
+
+    // OpenStreetMap
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: environment.map.maxZoom,
+      attribution: '© OpenStreetMap contributors',
+      detectRetina: true,
+      updateWhenIdle: false,
+      keepBuffer: 4
+    });
+
+    // Satellite (Esri)
+    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: environment.map.maxZoom,
+      attribution: '© Esri, Maxar, Earthstar Geographics',
+      detectRetina: true
+    });
+
+    // Terrain (CartoDB)
+    const terrainLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: environment.map.maxZoom,
+      attribution: '© CartoDB, © OpenStreetMap',
+      detectRetina: true
+    });
+
+    this.baseLayers.set('osm', osmLayer);
+    this.baseLayers.set('satellite', satelliteLayer);
+    this.baseLayers.set('terrain', terrainLayer);
+  }
+
+  /**
    * Initialiser le clustering de marqueurs
    */
   private initializeMarkerClustering(): void {
@@ -206,6 +293,9 @@ export class MapService {
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
       zoomToBoundsOnClick: true,
+      disableClusteringAtZoom: 17,
+      removeOutsideVisibleBounds: true,
+      animate: true,
       animateAddingMarkers: true,
       iconCreateFunction: (cluster: any) => this.createClusterIcon(cluster)
     });
@@ -261,6 +351,9 @@ export class MapService {
           this.mapZoom.set(zoom);
           this.updateMapBounds(bounds);
 
+          // Mettre à jour les statistiques de cluster
+          this.updateClusterStats();
+
           this.mapMoveSubject.next({
             center,
             zoom,
@@ -279,7 +372,7 @@ export class MapService {
       });
     });
 
-    // Événements de survol pour optimiser les performances
+    // Événements pour optimiser les performances
     this.map.on('zoomstart', () => {
       if (this.markerClusterGroup) {
         this.markerClusterGroup.disableClustering();
@@ -290,6 +383,11 @@ export class MapService {
       if (this.markerClusterGroup) {
         this.markerClusterGroup.enableClustering();
       }
+    });
+
+    // Événements de cluster
+    this.map.on('cluster:mouseover', (e: any) => {
+      console.log('Cluster hovered:', e.layer.getAllChildMarkers().length, 'markers');
     });
   }
 
@@ -303,28 +401,146 @@ export class MapService {
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
 
     // Contrôle d'échelle
-    L.control.scale({ 
+    L.control.scale({
       position: 'bottomleft',
       metric: true,
       imperial: false
     }).addTo(this.map);
+
+    // Contrôle de couches
+    const layerControl = L.control.layers(
+      {
+        'OpenStreetMap': this.baseLayers.get('osm')!,
+        'Satellite': this.baseLayers.get('satellite')!,
+        'Terrain': this.baseLayers.get('terrain')!
+      },
+      {},
+      { position: 'topright', collapsed: true }
+    ).addTo(this.map);
+  }
+
+  /**
+   * Configuration du filtrage automatique
+   */
+  // private setupMapSubscriptions(): void {
+  //   // Écouter les événements de la carte
+  //   this.mapService.mapMove$.subscribe(viewState => {
+  //     this.mapMove.emit(viewState);
+  //   });
+
+  //   this.mapService.poiClick$.subscribe(poi => {
+  //     this.poiClick.emit(poi);
+  //   });
+
+  //   this.mapService.mapClick$.subscribe(latlng => {
+  //     this.mapClick.emit(latlng);
+  //   });
+  // }
+
+  /**
+   * Appliquer les filtres aux POIs
+   */
+  private applyFilters(): void {
+    const allPois = this.visiblePois();
+    const filters = this.activeFilters();
+
+    let filtered = allPois;
+
+    // Filtrer par catégories
+    if (filters.categories && filters.categories.length > 0) {
+      filtered = filtered.filter(poi =>
+        filters.categories!.includes(poi.category)
+      );
+    }
+
+    // Filtrer par distance
+    if (filters.distance && this.userLocation()) {
+      const userPos = this.userLocation()!;
+      filtered = filtered.filter(poi => {
+        const distance = this.calculateDistance(
+          userPos.latitude, userPos.longitude,
+          poi.latitude, poi.longitude
+        );
+        return distance <= filters.distance!;
+      });
+    }
+
+    // Filtrer par note
+    if (filters.rating) {
+      filtered = filtered.filter(poi => poi.rating >= filters.rating!);
+    }
+
+    // Filtrer par vérification
+    if (filters.verified !== undefined) {
+      filtered = filtered.filter(poi => poi.isVerified === filters.verified);
+    }
+
+    // Filtrer par caractéristiques
+    if (filters.features && filters.features.length > 0) {
+      filtered = filtered.filter(poi => {
+        return filters.features!.some(feature => {
+          switch (feature) {
+            case 'restaurant': return poi.isRestaurant;
+            case 'transport': return poi.isTransport;
+            case 'stadium': return poi.isStadium;
+            case 'booking': return poi.isBooking;
+            default: return false;
+          }
+        });
+      });
+    }
+
+    this.filteredPois.set(filtered);
+    this.updatePoiMarkers(filtered);
   }
 
   /**
    * Mettre à jour les POIs visibles
    */
   updateVisiblePois(pois: PoiModel[]): void {
-    this.clearAllMarkers();
-    this.addPoiMarkers(pois);
     this.visiblePois.set(pois);
+    this.applyFilters(); // Applique automatiquement les filtres
   }
 
   /**
    * Ajouter des marqueurs POI
    */
-  private addPoiMarkers(pois: PoiModel[]): void {
+  private updatePoiMarkers(pois: PoiModel[]): void {
     if (!this.markerClusterGroup) return;
 
+    // Nettoyer les marqueurs existants
+    this.clearAllMarkers();
+
+    // Grouper les POIs par catégorie pour l'optimisation
+    const poiGroups = this.groupPoisByCategory(pois);
+
+    // Ajouter les marqueurs par groupes
+    Object.entries(poiGroups).forEach(([category, categoryPois]) => {
+      this.addPoiMarkersForCategory(category, categoryPois);
+    });
+
+    // Mettre à jour les statistiques
+    this.updateClusterStats();
+  }
+
+  /**
+   * Grouper les POIs par catégorie
+   */
+  private groupPoisByCategory(pois: PoiModel[]): Record<string, PoiModel[]> {
+    return pois.reduce((groups, poi) => {
+      const category = poi.category || 'other';
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+      groups[category].push(poi);
+      return groups;
+    }, {} as Record<string, PoiModel[]>);
+  }
+
+  /**
+   * Ajouter des marqueurs pour une catégorie spécifique
+   */
+  private addPoiMarkersForCategory(category: string, pois: PoiModel[]): void {
     const markers: L.Marker[] = [];
 
     pois.forEach(poi => {
@@ -335,7 +551,10 @@ export class MapService {
       }
     });
 
-    this.markerClusterGroup.addLayers(markers);
+    // Ajouter tous les marqueurs de la catégorie en une fois
+    if (markers.length > 0) {
+      this.markerClusterGroup.addLayers(markers);
+    }
   }
 
   /**
@@ -356,12 +575,14 @@ export class MapService {
       marker.on('mouseover', () => {
         this.ngZone.run(() => {
           this.hoveredPoi.set(poi);
+          this.markerHoverSubject.next(poi);
         });
       });
 
       marker.on('mouseout', () => {
         this.ngZone.run(() => {
           this.hoveredPoi.set(null);
+          this.markerHoverSubject.next(null);
         });
       });
 
@@ -369,14 +590,17 @@ export class MapService {
       const popupContent = this.createPopupContent(poi);
       marker.bindPopup(popupContent, {
         maxWidth: 300,
-        className: 'custom-popup'
+        className: 'custom-popup poi-popup',
+        closeOnClick: false
       });
 
       return {
         id: poi.id,
         marker,
         poi,
-        cluster: true
+        cluster: true,
+        category: poi.category,
+        isVisible: true
       };
 
     } catch (error) {
@@ -431,7 +655,7 @@ export class MapService {
       default: { icon: 'map-marker-alt', color: '#95a5a6' }
     };
 
-    return iconMap[category];
+    return iconMap[category] || iconMap['default'];
   }
 
   /**
@@ -503,9 +727,9 @@ export class MapService {
       iconAnchor: [10, 10]
     });
 
-    this.userLocationMarker = L.marker([position.latitude, position.longitude], { 
+    this.userLocationMarker = L.marker([position.latitude, position.longitude], {
       icon: userIcon,
-      zIndexOffset: 1000 // Toujours au-dessus des autres marqueurs
+      zIndexOffset: 1000
     }).addTo(this.map);
 
     // Ajouter le cercle de précision
@@ -526,7 +750,7 @@ export class MapService {
   centerOnUser(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.geolocationService.getCurrentPosition(true).subscribe({
-        next: (position) => {
+        next: (position: any) => {
           if (this.map) {
             this.map.flyTo([position.latitude, position.longitude], 16, {
               duration: 1.5
@@ -534,7 +758,7 @@ export class MapService {
             resolve();
           }
         },
-        error: (error) => {
+        error: (error: any) => {
           console.error('Impossible de centrer sur la position utilisateur:', error);
           reject(error);
         }
@@ -557,6 +781,11 @@ export class MapService {
     setTimeout(() => {
       this.poiClickSubject.next(poi);
     }, 1500);
+  }
+
+  flyTo(lat: number, lng: number, zoom: number = 17): void {
+    if (!this.map) return;
+    this.map.flyTo([lat, lng], zoom, { duration: 1.5, easeLinearity: 0.5 });
   }
 
   /**
@@ -614,7 +843,7 @@ export class MapService {
     if (!query || query.length < 2) return [];
 
     const searchTerms = query.toLowerCase().split(' ');
-    
+
     return pois
       .map(poi => ({
         poi,
@@ -650,6 +879,137 @@ export class MapService {
   }
 
   /**
+   * Gestion des couches de carte
+   */
+  changeBaseLayer(layerName: string): void {
+    if (!this.map || !this.baseLayers.has(layerName)) return;
+
+    // Retirer la couche actuelle
+    const currentLayer = this.baseLayers.get(this.currentBaseLayer);
+    if (currentLayer) {
+      this.map.removeLayer(currentLayer);
+    }
+
+    // Ajouter la nouvelle couche
+    const newLayer = this.baseLayers.get(layerName);
+    if (newLayer) {
+      newLayer.addTo(this.map);
+      this.currentBaseLayer = layerName;
+    }
+  }
+
+  /**
+   * Basculer une couche overlay
+   */
+  toggleOverlayLayer(layerName: string): void {
+    if (!this.map) return;
+
+    const layer = this.overlayLayers.get(layerName);
+    if (!layer) return;
+
+    if (this.map.hasLayer(layer)) {
+      this.map.removeLayer(layer);
+    } else {
+      this.map.addLayer(layer);
+    }
+  }
+
+  /**
+   * Activer/désactiver la heatmap
+   */
+  toggleHeatmap(enable: boolean): void {
+    if (!this.map) return;
+
+    if (enable && !this.heatmapLayer) {
+      // Créer la heatmap à partir des POIs
+      const heatData = this.filteredPois().map(poi => [
+        poi.latitude,
+        poi.longitude,
+        poi.rating * 0.2 // Intensité basée sur la note
+      ]);
+
+      // Note: Nécessite le plugin leaflet-heat
+      // this.heatmapLayer = L.heatLayer(heatData, {radius: 25}).addTo(this.map);
+    } else if (!enable && this.heatmapLayer) {
+      this.map.removeLayer(this.heatmapLayer);
+      this.heatmapLayer = null;
+    }
+  }
+
+  /**
+   * Gestion des filtres
+   */
+  updateFilters(filters: FilterOptions): void {
+    this.activeFilters.set(filters);
+  }
+
+  addFilter(key: keyof FilterOptions, value: any): void {
+    this.activeFilters.update(current => ({
+      ...current,
+      [key]: value
+    }));
+  }
+
+  removeFilter(key: keyof FilterOptions): void {
+    this.activeFilters.update(current => {
+      const newFilters = { ...current };
+      delete newFilters[key];
+      return newFilters;
+    });
+  }
+
+  clearFilters(): void {
+    this.activeFilters.set({});
+  }
+
+  /**
+   * Mettre à jour les statistiques de cluster
+   */
+  private updateClusterStats(): void {
+    if (!this.markerClusterGroup) return;
+
+    const totalMarkers = this.markers.size;
+    const visibleMarkers = Array.from(this.markers.values())
+      .filter(marker => marker.isVisible).length;
+
+    // Statistiques approximatives du clustering
+    const clusters = this.markerClusterGroup.getLayers ?
+      this.markerClusterGroup.getLayers().length : 0;
+
+    this.clusterStats.set({
+      totalMarkers,
+      visibleMarkers,
+      clusteredMarkers: totalMarkers - visibleMarkers,
+      clusters
+    });
+  }
+
+  /**
+   * Optimisation des performances
+   */
+  private optimizeMarkerVisibility(): void {
+    if (!this.map) return;
+
+    const bounds = this.map.getBounds();
+
+    this.markers.forEach((mapMarker, id) => {
+      const { marker, poi } = mapMarker;
+      const markerLatLng = marker.getLatLng();
+      const isInBounds = bounds.contains(markerLatLng);
+
+      if (isInBounds !== mapMarker.isVisible) {
+        mapMarker.isVisible = isInBounds;
+
+        if (isInBounds) {
+          this.markerClusterGroup.addLayer(marker);
+        } else {
+          this.markerClusterGroup.removeLayer(marker);
+        }
+      }
+    });
+  }
+
+  /**
    * Utilitaires privés
    */
   private updateMapBounds(bounds: L.LatLngBounds): void {
@@ -663,11 +1023,11 @@ export class MapService {
 
   private isPoiInBounds(poi: PoiModel, bounds: MapBounds | null): boolean {
     if (!bounds) return true;
-    
+
     return poi.latitude >= bounds.south &&
-           poi.latitude <= bounds.north &&
-           poi.longitude >= bounds.west &&
-           poi.longitude <= bounds.east;
+      poi.latitude <= bounds.north &&
+      poi.longitude >= bounds.west &&
+      poi.longitude <= bounds.east;
   }
 
   private getCategoryStats(pois: PoiModel[]): Record<string, number> {
@@ -680,7 +1040,7 @@ export class MapService {
   private calculateAverageRating(pois: PoiModel[]): number {
     const validRatings = pois.filter(poi => poi.rating > 0);
     if (validRatings.length === 0) return 0;
-    
+
     const total = validRatings.reduce((sum, poi) => sum + poi.rating, 0);
     return Number((total / validRatings.length).toFixed(1));
   }
@@ -689,11 +1049,11 @@ export class MapService {
     const R = 6371; // Rayon de la Terre en km
     const dLat = this.deg2rad(lat2 - lat1);
     const dLng = this.deg2rad(lng2 - lng1);
-    
+
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(this.deg2rad(lat1)) * Math.cos(this.deg2rad(lat2)) *
-              Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    
+      Math.cos(this.deg2rad(lat1)) * Math.cos(this.deg2rad(lat2)) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
@@ -708,15 +1068,15 @@ export class MapService {
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
     let stars = '';
-    
+
     for (let i = 0; i < fullStars; i++) {
       stars += '<i class="fas fa-star" style="color: #fbbf24;"></i>';
     }
-    
+
     if (hasHalfStar) {
       stars += '<i class="fas fa-star-half-alt" style="color: #fbbf24;"></i>';
     }
-    
+
     for (let i = 0; i < emptyStars; i++) {
       stars += '<i class="far fa-star" style="color: #d1d5db;"></i>';
     }
@@ -753,6 +1113,37 @@ export class MapService {
   }
 
   /**
+   * Méthodes d'export pour l'interface
+   */
+  exportMapAsImage(): Promise<string> {
+    return new Promise((resolve) => {
+      if (!this.map) {
+        resolve('');
+        return;
+      }
+
+      // Utiliser leaflet-image ou html2canvas pour capturer la carte
+      // Implementation dépend de la bibliothèque choisie
+      resolve('data:image/png;base64,...');
+    });
+  }
+
+  /**
+   * Gestion des événements personnalisés
+   */
+  onPoiSelected(callback: (poi: PoiModel) => void): void {
+    this.poiClick$.subscribe(callback);
+  }
+
+  onMapMoved(callback: (state: MapViewState) => void): void {
+    this.mapMove$.subscribe(callback);
+  }
+
+  onMarkerHovered(callback: (poi: PoiModel | null) => void): void {
+    this.markerHover$.subscribe(callback);
+  }
+
+  /**
    * Nettoyage lors de la destruction
    */
   destroy(): void {
@@ -760,11 +1151,14 @@ export class MapService {
       this.map.remove();
       this.map = null;
     }
-    
+
     this.markers.clear();
+    this.baseLayers.clear();
+    this.overlayLayers.clear();
     this.markerClusterGroup = null;
     this.userLocationMarker = null;
     this.searchCircle = null;
+    this.heatmapLayer = null;
   }
 
   /**
@@ -789,4 +1183,40 @@ export class MapService {
   isReady(): boolean {
     return this.isMapReady();
   }
+
+  getCurrentBaseLayer(): string {
+    return this.currentBaseLayer;
+  }
+
+  getAvailableBaseLayers(): string[] {
+    return Array.from(this.baseLayers.keys());
+  }
+
+  getMarkerCount(): number {
+    return this.markers.size;
+  }
+
+  getVisibleMarkerCount(): number {
+    return Array.from(this.markers.values())
+      .filter(marker => marker.isVisible).length;
+  }
+
+  /**
+   * Debug et diagnostics
+   */
+  getMapDiagnostics(): any {
+    return {
+      mapReady: this.isMapReady(),
+      center: this.getCenter(),
+      zoom: this.getZoom(),
+      bounds: this.getBounds(),
+      markers: this.getMarkerCount(),
+      visibleMarkers: this.getVisibleMarkerCount(),
+      currentBaseLayer: this.currentBaseLayer,
+      clusterStats: this.clusterStats(),
+      activeFilters: this.activeFilters(),
+      userLocation: this.userLocation()
+    };
+  }
 }
+

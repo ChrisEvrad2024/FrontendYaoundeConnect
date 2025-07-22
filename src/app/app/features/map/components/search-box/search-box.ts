@@ -1,13 +1,13 @@
 // src/app/features/map/components/search-box/search-box.ts
 
-import { 
-  Component, 
-  OnInit, 
-  OnDestroy, 
-  ElementRef, 
-  ViewChild, 
-  inject, 
-  signal, 
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  ElementRef,
+  ViewChild,
+  inject,
+  signal,
   computed,
   output,
   input,
@@ -21,7 +21,8 @@ import { OSMService, SearchSuggestion, GeocodeResult } from '../../services/osm'
 import { GeolocationService } from '../../../../core/services/geolocation';
 import { fadeAnimation, slideAnimation, listAnimation } from '../../../../../../animations/app.animations';
 
-import { LucideAngularModule, 
+import {
+  LucideAngularModule,
   Search, X, MapPin, Navigation, Clock, Star, Filter,
   ChevronDown, Loader2, AlertCircle
 } from 'lucide-angular';
@@ -100,7 +101,7 @@ export interface SearchEvent {
           <div class="filter-section">
             <label class="filter-label">Catégories</label>
             <div class="filter-options">
-              @for (category of categories; track category.id) {
+              @for (category of categories(); track category.id) {
                 <label class="filter-option">
                   <input
                     type="checkbox"
@@ -153,7 +154,7 @@ export interface SearchEvent {
               @for (recent of recentSearches(); track recent.text) {
                 <div 
                   class="suggestion-item recent-item"
-                  (click)="selectSuggestion(recent)"
+                  (click)="selectSuggestion(convertToSuggestion(recent))"
                   @listAnimation
                 >
                   <div class="suggestion-icon">
@@ -630,6 +631,17 @@ export class SearchBox implements OnInit, OnDestroy {
     this.subscriptions.unsubscribe();
   }
 
+  convertToSuggestion(recent: SearchResult): SearchSuggestion {
+    return {
+      text: recent.text,
+      type: recent.type === 'suggestion' ? 'address' : recent.type as 'address' | 'place' | 'poi',
+      latitude: recent.latitude,
+      longitude: recent.longitude,
+      category: recent.category,
+      confidence: recent.confidence || 0.8
+    };
+  }
+
   private setupSearchSubscription(): void {
     // Observable pour la recherche avec debounce
     const searchInput$ = fromEvent(this.searchInput?.nativeElement || document, 'input').pipe(
@@ -735,7 +747,7 @@ export class SearchBox implements OnInit, OnDestroy {
 
   selectSuggestion(suggestion: SearchSuggestion): void {
     this.searchQuery = suggestion.text;
-    
+
     const event: SearchEvent = {
       query: suggestion.text,
       result: {
@@ -746,7 +758,7 @@ export class SearchBox implements OnInit, OnDestroy {
         category: suggestion.category,
         confidence: suggestion.confidence
       },
-      coordinates: suggestion.latitude && suggestion.longitude 
+      coordinates: suggestion.latitude && suggestion.longitude
         ? { lat: suggestion.latitude, lng: suggestion.longitude }
         : undefined
     };
@@ -758,13 +770,13 @@ export class SearchBox implements OnInit, OnDestroy {
 
   navigateToSuggestion(suggestion: SearchSuggestion, event: Event): void {
     event.stopPropagation();
-    
+
     if (suggestion.latitude && suggestion.longitude) {
       const searchEvent: SearchEvent = {
         query: suggestion.text,
         coordinates: { lat: suggestion.latitude, lng: suggestion.longitude }
       };
-      
+
       this.searchEvent.emit(searchEvent);
     }
   }
@@ -805,24 +817,24 @@ export class SearchBox implements OnInit, OnDestroy {
       categories: this.selectedCategories(),
       maxDistance: this.maxDistance()
     };
-    
+
     this.filtersChanged.emit(filters);
     this.filtersVisible.set(false);
   }
 
   removeRecentSearch(search: SearchResult, event: Event): void {
     event.stopPropagation();
-    
-    this.recentSearches.update(current => 
+
+    this.recentSearches.update(current =>
       current.filter(item => item.text !== search.text)
     );
-    
+
     this.saveRecentSearches();
   }
 
   highlightQuery(text: string): string {
     if (!this.searchQuery) return text;
-    
+
     const regex = new RegExp(`(${this.searchQuery})`, 'gi');
     return text.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800">$1</mark>');
   }
@@ -831,11 +843,11 @@ export class SearchBox implements OnInit, OnDestroy {
     this.recentSearches.update(current => {
       // Supprimer les doublons
       const filtered = current.filter(item => item.text !== search.text);
-      
+
       // Ajouter au début et limiter à 10
       return [search, ...filtered].slice(0, 10);
     });
-    
+
     this.saveRecentSearches();
   }
 
@@ -854,7 +866,7 @@ export class SearchBox implements OnInit, OnDestroy {
   private saveRecentSearches(): void {
     try {
       localStorage.setItem(
-        'yaoundeconnect_recent_searches', 
+        'yaoundeconnect_recent_searches',
         JSON.stringify(this.recentSearches())
       );
     } catch (error) {

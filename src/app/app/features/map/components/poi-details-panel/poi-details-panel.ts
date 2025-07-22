@@ -27,8 +27,8 @@ import { LucideAngularModule,
       <!-- Header -->
       <div class="panel-header">
         <div class="header-content">
-          <h3>{{ poi()?.name }}</h3>
-          @if (poi()?.isVerified) {
+          <h3>{{ poi().name }}</h3>
+          @if (poi().isVerified) {
             <div class="verified-badge">
               <lucide-icon [img]="CheckCircle" class="w-4 h-4"></lucide-icon>
               <span>Vérifié</span>
@@ -41,9 +41,9 @@ import { LucideAngularModule,
       </div>
 
       <!-- Image -->
-      @if (poi()?.image) {
+      @if (poi().image) {
         <div class="poi-image">
-          <img [src]="poi()?.image" [alt]="poi()?.name" />
+          <img [src]="poi().image" [alt]="poi().name" />
         </div>
       }
 
@@ -56,28 +56,28 @@ import { LucideAngularModule,
               <lucide-icon 
                 [img]="Star" 
                 class="w-4 h-4"
-                [class.text-yellow-400]="star <= (poi()?.rating || 0)"
-                [class.text-gray-300]="star > (poi()?.rating || 0)"
+                [class.text-yellow-400]="star <= (poi().rating || 0)"
+                [class.text-gray-300]="star > (poi().rating || 0)"
               ></lucide-icon>
             }
             <span class="rating-text">
-              {{ poi()?.rating || 0 | number:'1.1-1' }} 
-              ({{ poi()?.ratingCount || 0 }} avis)
+              {{ poi().rating || 0 | number:'1.1-1' }} 
+              ({{ poi().ratingCount || 0 }} avis)
             </span>
           </div>
           <div class="category">
-            {{ poi()?.category?.name || poi()?.category }}
+            {{ poi().category?.name || poi().category }}
           </div>
         </div>
 
         <!-- Description -->
-        <p class="description">{{ poi()?.description }}</p>
+        <p class="description">{{ poi().description }}</p>
 
         <!-- Address and Distance -->
         <div class="location-info">
           <div class="address">
             <lucide-icon [img]="MapPin" class="w-4 h-4"></lucide-icon>
-            <span>{{ poi()?.address }}</span>
+            <span>{{ poi().address }}</span>
           </div>
           @if (distance()) {
             <div class="distance">
@@ -106,7 +106,7 @@ import { LucideAngularModule,
         }
 
         <!-- Contact Information -->
-        @if (poi()?.contacts && poi()?.contacts.length > 0) {
+        @if (poi()?.contacts) {
           <div class="contact-section">
             <h4>Contact</h4>
             @for (contact of poi()?.contacts; track contact.id) {
@@ -135,7 +135,7 @@ import { LucideAngularModule,
         }
 
         <!-- Services -->
-        @if (poi()?.services && poi()?.services.length > 0) {
+        @if (poi()?.services) {
           <div class="services-section">
             <h4>Services</h4>
             <div class="services-list">

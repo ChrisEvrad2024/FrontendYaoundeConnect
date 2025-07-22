@@ -94,12 +94,12 @@ export class MapService {
     updatePoiMarkers(pois: PoiModel[]): void {
         // Supprimer tous les marqueurs existants
         this.clearAllMarkers();
-        
+
         // Ajouter les nouveaux marqueurs
         pois.forEach(poi => {
             this.addPoiMarker(poi);
         });
-        
+
         // Mettre à jour les POI visibles
         this.visiblePois.set(pois);
     }
@@ -204,7 +204,7 @@ export class MapService {
 
         const userMarker = L.marker([lat, lng], { icon: userIcon }).addTo(this.map);
         this.userLocation.set(L.latLng(lat, lng));
-        
+
         return userMarker;
     }
 
@@ -250,16 +250,14 @@ export class MapService {
             );
         });
     }
-
+    
     flyTo(lat: number, lng: number, zoom: number = 17): void {
-        this.map.flyTo([lat, lng], zoom, {
-            duration: 1.5,
-            easeLinearity: 0.5
-        });
+        if (!this.map) return;
+        this.map.flyTo([lat, lng], zoom, { duration: 1.5, easeLinearity: 0.5 });
     }
 
     fitBounds(bounds: L.LatLngBounds, options?: L.FitBoundsOptions): void {
-        const defaultOptions: L.FitBoundsOptions = { 
+        const defaultOptions: L.FitBoundsOptions = {
             padding: [50, 50],
             maxZoom: 16
         };
@@ -299,7 +297,7 @@ export class MapService {
             fillOpacity: 0.1,
             weight: 2
         };
-        
+
         return L.circle([lat, lng], {
             radius: radiusKm * 1000, // Convert km to meters
             ...defaultOptions,
@@ -354,17 +352,17 @@ export class MapService {
         const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
         let stars = '';
-        
+
         // Étoiles pleines
         for (let i = 0; i < fullStars; i++) {
             stars += '<i class="fas fa-star" style="color: #fbbf24;"></i>';
         }
-        
+
         // Demi-étoile
         if (hasHalfStar) {
             stars += '<i class="fas fa-star-half-alt" style="color: #fbbf24;"></i>';
         }
-        
+
         // Étoiles vides
         for (let i = 0; i < emptyStars; i++) {
             stars += '<i class="far fa-star" style="color: #d1d5db;"></i>';
